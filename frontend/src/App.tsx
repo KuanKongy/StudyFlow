@@ -4,7 +4,27 @@ import LogoutButton from './LogoutButton';
 import Profile from './Profile';
 
 function App() {
-  const { isAuthenticated, isLoading, error } = useAuth0();
+  const { isAuthenticated, isLoading, error, getAccessTokenSilently } = useAuth0();
+  
+  const callApi = async () => {
+    if (!isAuthenticated) return;
+    const token = await getAccessTokenSilently();
+    console.log("Access Token:", token);
+
+    const res = await fetch("http://localhost:4000/api/private", {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    if (!res.ok) {
+      console.error("API error", res.status, await res.text());
+      return;
+    }
+
+    const data = await res.json();
+    console.log("API response:", data);
+  };
 
   if (isLoading) {
     return (
@@ -39,11 +59,12 @@ function App() {
             e.currentTarget.style.display = 'none';
           }}
         />
-        <h1 className="main-title">Welcome to Sample0</h1>
+        <h1 className="main-title">Welcome to StudyFlow</h1>
         
         {isAuthenticated ? (
           <div className="logged-in-section">
             <div className="logged-in-message">✅ Successfully authenticated!</div>
+            <button onClick={callApi}>Call Backend API</button>
             <h2 className="profile-section-title">Your Profile</h2>
             <div className="profile-card">
               <Profile />
