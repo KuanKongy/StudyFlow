@@ -1,7 +1,10 @@
 import express from "express";
-import { MongoClient } from "mongodb";
+import { MongoClient, ObjectId } from "mongodb";
 import { createClient } from "redis";
+import { auth } from "express-oauth2-jwt-bearer";
 import cors from "cors";
+import dotenv from "dotenv";
+dotenv.config();
 
 const app = express();
 app.use(cors());
@@ -16,19 +19,291 @@ const redis = createClient({ url: redisUrl });
 await mongo.connect();
 await redis.connect();
 
+const checkJwt = auth({
+  audience: process.env.AUTH0_AUDIENCE,
+  issuerBaseURL: `https://${process.env.AUTH0_DOMAIN}`,
+});
+
+const db = mongo.db();
+const Notes = db.collection("notes");
+const Jobs = db.collection("jobs");
+const Flashcards = db.collection("flashcards");
+const Users = db.collection("users");
+const StudyMaterials = db.collection("studyMaterials");
+const FlashcardSets = db.collection("flashcardSets");
+const Groups = db.collection("groups");
+const Topics = db.collection("topics");
+
+await StudyMaterials.createIndex({ ownerId: 1 });
+await StudyMaterials.createIndex({ topicId: 1 });
+await StudyMaterials.createIndex({ type: 1 });
+await Jobs.createIndex({ ownerId: 1 });
+await Jobs.createIndex({ status: 1 });
+await Flashcards.createIndex({ setId: 1 });
+await Groups.createIndex({ ownerId: 1 });
+await Groups.createIndex({ memberIds: 1 });
+await Topics.createIndex({ ownerId: 1 });
+await Topics.createIndex({ groupId: 1 });
+
 console.log("API connected to Mongo + Redis");
 
+//Health Check
 app.get("/health", (req, res) => {
   res.json({ ok: true });
 });
 
-// test endpoint
+//Test endpoint
 app.post("/enqueue", async (req, res) => {
-  await redis.lPush("queue:jobs", JSON.stringify({ 
-    type: "test", 
-    at: Date.now() 
-  }));
-  res.json({ queued: true });
+  const { insertedId } = await Jobs.insertOne({
+    type: "TEST",
+    status: "queued",
+    createdAt: Date.now(),
+  });
+
+  await redis.lPush("queue:jobs", JSON.stringify({ jobId: insertedId.toString() }));
+  res.json({ jobId: insertedId });
+});
+
+//Test Auth
+app.get("/api/private", checkJwt, (req, res) => {
+  res.json({
+    message: "You are authenticated!",
+    user: req.auth.payload
+  });
+});
+
+//MongoDB
+//Auth User
+app.get("/me", checkJwt, async (req, res) => {
+  const authId = req.auth.payload.sub;
+
+  let user = await Users.findOne({ authId });
+
+  if (!user) {
+    user = {
+      authId,
+      email: req.auth.payload.email,
+      username: req.auth.payload.nickname ?? null,
+      createdAt: Date.now(),
+    };
+    await Users.insertOne(user);
+  }
+
+  res.json(user);
+});
+
+//Create note
+app.post("/notes", async (req, res) => {
+  const { title, content, topicId } = req.body;
+  if (!content || !title || !topicId) {
+    return res.status(400).json({ error: "missing data required" });
+  }
+
+  const material = {
+    type: "note",
+    title,
+    ownerId: "dev-user", // replace with req.auth.payload.sub later
+    topicId: topicId ? new ObjectId(topicId) : null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  const { insertedId: materialId } =
+    await StudyMaterials.insertOne(material);
+
+  await Notes.insertOne({
+    materialId,
+    content,
+  });
+
+  res.json({ materialId });
+});
+
+//Create flashcard job
+app.post("/materials/:id/flashcards", async (req, res) => {
+  const inputMaterialId = new ObjectId(req.params.id);
+
+  const material = await StudyMaterials.findOne({ _id: inputMaterialId });
+  if (!material || material.type !== "note") {
+    return res.status(400).json({ error: "Invalid input material" });
+  }
+
+  const job = {
+    type: "GENERATE_FLASHCARDS",
+    inputMaterialId,
+    ownerId: material.ownerId,
+    status: "queued",
+    createdAt: Date.now(),
+  };
+
+  const { insertedId } = await Jobs.insertOne(job);
+
+  await redis.lPush(
+    "queue:jobs",
+    JSON.stringify({ jobId: insertedId.toString() })
+  );
+
+  res.json({ jobId: insertedId });
+});
+
+//Create summary job
+app.post("/materials/:id/summary", async (req, res) => {
+  const inputMaterialId = new ObjectId(req.params.id);
+
+  const material = await StudyMaterials.findOne({ _id: inputMaterialId });
+  if (!material || material.type !== "note") {
+    return res.status(400).json({ error: "Invalid input material" });
+  }
+
+  const job = {
+    type: "GENERATE_SUMMARY",
+    inputMaterialId,
+    ownerId: material.ownerId,
+    status: "queued",
+    createdAt: Date.now(),
+  };
+
+  const { insertedId } = await Jobs.insertOne(job);
+  await redis.lPush("queue:jobs", JSON.stringify({ jobId: insertedId.toString() }));
+
+  res.json({ jobId: insertedId });
+});
+
+//Get job status
+app.get("/jobs/:id", async (req, res) => {
+  const jobId = req.params.id;
+
+  const job = await Jobs.findOne({ _id: new ObjectId(jobId) });
+  if (!job) {
+    return res.status(404).json({ error: "Job not found" });
+  }
+
+  res.json({ status: job.status });
+});
+
+//Get all materials for a topic
+app.get("/topics/:id/materials", async (req, res) => {
+  const topicId = new ObjectId(req.params.id);
+  const materials = await StudyMaterials
+    .find({ topicId })
+    .sort({ createdAt: -1 })
+    .toArray();
+
+  res.json(materials);
+});
+
+//Get material details (note OR flashcard set)
+app.get("/materials/:id", async (req, res) => {
+  const material = await StudyMaterials.findOne({
+    _id: new ObjectId(req.params.id),
+  });
+  res.json(material);
+});
+
+//Get notes
+app.get("/materials/:id/note", async (req, res) => {
+  const note = await Notes.findOne({
+    materialId: new ObjectId(req.params.id),
+  });
+  res.json(note);
+});
+
+//Get flashcard sets
+app.get("/materials/:id/flashcard-set", async (req, res) => {
+  const set = await FlashcardSets.findOne({
+    materialId: new ObjectId(req.params.id),
+  });
+  res.json(set);
+});
+
+//Get flashcards
+app.get("/flashcard-sets/:id/cards", async (req, res) => {
+  const setId = new ObjectId(req.params.id);
+  const cards = await Flashcards.find({ setId }).toArray();
+  res.json(cards);
+});
+
+//Get all jobs for user
+app.get("/jobs", async (req, res) => {
+  const jobs = await Jobs
+    .find({ ownerId: "dev-user" })
+    .sort({ createdAt: -1 })
+    .toArray();
+
+  res.json(jobs);
+});
+
+// Get user by id
+app.get("/users/:id", async (req, res) => {
+  const user = await Users.findOne({ _id: new ObjectId(req.params.id) });
+  if (!user) return res.status(404).json({ error: "User not found" });
+  res.json(user);
+});
+
+//Groups
+//Creat group
+app.post("/groups", async (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: "name required" });
+
+  const group = {
+    name,
+    ownerId: "dev-user",
+    memberIds: ["dev-user"],
+    createdAt: Date.now(),
+  };
+
+  const { insertedId } = await Groups.insertOne(group);
+  res.json({ groupId: insertedId });
+});
+//Get group
+app.get("/groups", async (req, res) => {
+  const groups = await Groups
+    .find({ memberIds: "dev-user" })
+    .toArray();
+  res.json(groups);
+});
+//Add user
+app.post("/groups/:id/members", async (req, res) => {
+  const { userId } = req.body;
+
+  await Groups.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $addToSet: { memberIds: userId } }
+  );
+
+  res.json({ ok: true });
+});
+
+//Topics
+//Create topic
+app.post("/topics", async (req, res) => {
+  const { name, groupId } = req.body;
+  if (!name) return res.status(400).json({ error: "name required" });
+
+  const topic = {
+    name,
+    ownerId: "dev-user",
+    groupId: groupId ? new ObjectId(groupId) : null,
+    createdAt: Date.now(),
+  };
+
+  const { insertedId } = await Topics.insertOne(topic);
+  res.json({ topicId: insertedId });
+});
+//Get topic (user+groups)
+app.get("/topics", async (req, res) => {
+  const groups = await Groups.find({ memberIds: "dev-user" }).toArray();
+  const groupIds = groups.map(g => g._id);
+
+  const topics = await Topics.find({
+    $or: [
+      { ownerId: "dev-user", groupId: null },
+      { groupId: { $in: groupIds } }
+    ]
+  }).toArray();
+
+  res.json(topics);
 });
 
 app.listen(4000, () => {

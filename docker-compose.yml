@@ -17,6 +17,8 @@ services:
       - "4000:4000"
     volumes:
       - ./api:/app
+    env_file:
+      - ./api/src/.env
     environment:
       - MONGO_URL=mongodb://mongo:27017/study
       - REDIS_URL=redis://redis:6379
