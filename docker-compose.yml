@@ -1,0 +1,39 @@
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  api:
+    build: ./api
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./api:/app
+    environment:
+      - MONGO_URL=mongodb://mongo:27017/study
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - mongo
+      - redis
+
+  worker:
+    build: ./worker
+    volumes:
+      - ./worker:/app
+    environment:
+      - MONGO_URL=mongodb://mongo:27017/study
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - mongo
+      - redis
+
+volumes:
+  mongo_data:
