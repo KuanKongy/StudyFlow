@@ -21,7 +21,7 @@ await redis.connect();
 
 const checkJwt = auth({
   audience: process.env.AUTH0_AUDIENCE,
-  issuerBaseURL: `https://${process.env.AUTH0_DOMAIN}`,
+  issuerBaseURL: `https://${process.env.AUTH0_DOMAIN}`
 });
 
 const db = mongo.db();
@@ -93,16 +93,15 @@ app.get("/me", checkJwt, async (req, res) => {
 });
 
 //Create note
-app.post("/notes", async (req, res) => {
+app.post("/notes",checkJwt, async (req, res) => {
   const { title, content, topicId } = req.body;
   if (!content || !title || !topicId) {
     return res.status(400).json({ error: "missing data required" });
   }
-
   const material = {
     type: "note",
     title,
-    ownerId: "dev-user", // replace with req.auth.payload.sub later
+    ownerId: req.auth.payload.sub, 
     topicId: topicId ? new ObjectId(topicId) : null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -208,6 +207,35 @@ app.get("/materials/:id/note", async (req, res) => {
   res.json(note);
 });
 
+//Update notes
+app.put("/materials/:id/note", async (req, res) => {
+  const { title, content } = req.body;
+  const materialId = new ObjectId(req.params.id);
+
+  const material = await StudyMaterials.updateOne({
+    _id: materialId,
+  }, {
+    $set: {
+      title: title,
+      updatedAt: Date.now(),
+    }
+  })
+
+  const note = await Notes.updateOne({
+    materialId: req.params.id,
+  }, {
+    $set: {
+      content: content,
+    }
+  })
+
+  if (note.matchedCount === 0) {
+    return res.status(404).json({ error: "Note not found" });
+  }
+
+  res.json([note, material]);
+})
+
 //Get flashcard sets
 app.get("/materials/:id/flashcard-set", async (req, res) => {
   const set = await FlashcardSets.findOne({
@@ -224,9 +252,9 @@ app.get("/flashcard-sets/:id/cards", async (req, res) => {
 });
 
 //Get all jobs for user
-app.get("/jobs", async (req, res) => {
+app.get("/jobs", checkJwt, async (req, res) => {
   const jobs = await Jobs
-    .find({ ownerId: "dev-user" })
+    .find({ ownerId: req.auth.payload.sub })
     .sort({ createdAt: -1 })
     .toArray();
 
@@ -242,14 +270,14 @@ app.get("/users/:id", async (req, res) => {
 
 //Groups
 //Creat group
-app.post("/groups", async (req, res) => {
+app.post("/groups", checkJwt, async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "name required" });
 
   const group = {
     name,
-    ownerId: "dev-user",
-    memberIds: ["dev-user"],
+    ownerId: req.auth.payload.sub,
+    memberIds: [req.auth.payload.sub],
     createdAt: Date.now(),
   };
 
@@ -277,13 +305,12 @@ app.post("/groups/:id/members", async (req, res) => {
 
 //Topics
 //Create topic
-app.post("/topics", async (req, res) => {
+app.post("/topics", checkJwt, async (req, res) => {
   const { name, groupId } = req.body;
   if (!name) return res.status(400).json({ error: "name required" });
-
   const topic = {
     name,
-    ownerId: "dev-user",
+    ownerId: req.auth.payload.sub,
     groupId: groupId ? new ObjectId(groupId) : null,
     createdAt: Date.now(),
   };
@@ -292,13 +319,13 @@ app.post("/topics", async (req, res) => {
   res.json({ topicId: insertedId });
 });
 //Get topic (user+groups)
-app.get("/topics", async (req, res) => {
-  const groups = await Groups.find({ memberIds: "dev-user" }).toArray();
+app.get("/topics", checkJwt, async (req, res) => {
+  const groups = await Groups.find({ memberIds: req.auth.payload.sub }).toArray();
   const groupIds = groups.map(g => g._id);
 
   const topics = await Topics.find({
     $or: [
-      { ownerId: "dev-user", groupId: null },
+      { ownerId: req.auth.payload.sub, groupId: null },
       { groupId: { $in: groupIds } }
     ]
   }).toArray();
