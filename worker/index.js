@@ -1,5 +1,10 @@
 import { MongoClient, ObjectId } from "mongodb";
 import { createClient } from "redis";
+import OpenAI from "openai";
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 const mongoUrl = process.env.MONGO_URL;
 const redisUrl = process.env.REDIS_URL;
@@ -79,13 +84,66 @@ async function handleGenerateFlashcards(job) {
     return;
   }
 
-  // Mock AI call
-  const aiResult = {
-    setTitle: "Auto-generated Flashcards",
-    cards: [
-      { q: "What is ...?", a: "..." },
-    ],
-  };
+  if (note.content.length > 50_000) {
+    throw new Error("Note too large to summarize");
+  }
+
+  // AI call
+  const prompt = `
+  You are an expert study assistant.
+  
+  Given the following study notes, generate 10 high-quality flashcards.
+  
+  Rules:
+  - Return ONLY valid JSON
+  - No markdown
+  - No explanations
+  - Questions should test understanding, not trivia
+  
+  JSON format:
+  {
+    "setTitle": "string",
+    "cards": [
+      { "q": "question", "a": "answer" }
+    ]
+  }
+  
+  Notes:
+  ${note.content}
+  `;
+  
+  let aiResult;
+  
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "You generate flashcards for studying." },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.3,
+    });
+  
+    aiResult = JSON.parse(response.choices[0].message.content);
+  } catch (err) {
+    await Jobs.updateOne(
+      { _id: job._id },
+      { $set: { status: "failed", error: "AI generation failed" } }
+    );
+    throw err;
+  }
+
+  if (
+    !aiResult ||
+    !Array.isArray(aiResult.cards) ||
+    aiResult.cards.length === 0
+  ) {
+    await Jobs.updateOne(
+      { _id: job._id },
+      { $set: { status: "failed", error: "Invalid AI output" } }
+    );
+    return;
+  }
 
   //Create StudyMaterial
   const inputMaterial = await StudyMaterials.findOne({
@@ -128,6 +186,8 @@ async function handleGenerateFlashcards(job) {
   );
 }
 
+//Generate summary
+//TODO: error handling
 async function handleGenerateSummary(job) {
   await Jobs.updateOne(
     { _id: job._id },
@@ -143,8 +203,37 @@ async function handleGenerateSummary(job) {
     return;
   }
 
-  // Mock AI call
-  const summaryText = "This is a concise AI-generated summary of the note.";
+  if (note.content.length > 50_000) {
+    throw new Error("Note too large to summarize");
+  }
+
+  // AI call
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o-mini", // cheap + good for summarization
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are an assistant that summarizes study notes. " +
+          "You MUST only use information present in the input. " +
+          "Do not add new facts. Preserve important terminology. Output valid Markdown.",
+      },
+      {
+        role: "user",
+        content: `
+  Summarize the following study note into a concise, well-structured summary.
+  Use headings and bullet points where appropriate.
+  
+  <NOTE>
+  ${note.content}
+  </NOTE>
+        `,
+      },
+    ],
+    temperature: 0.2, // low = factual, stable
+  });
+  
+  const summaryText = completion.choices[0].message.content;
 
   //Insert summary (appears as note)
   const inputMaterial = await StudyMaterials.findOne({
@@ -156,6 +245,7 @@ async function handleGenerateSummary(job) {
       title: `Summary: ${inputMaterial.title}`,
       ownerId: job.ownerId,
       topicId: inputMaterial.topicId ?? null,
+      derivedFrom: inputMaterial._id,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
