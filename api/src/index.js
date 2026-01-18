@@ -171,11 +171,21 @@ app.post("/materials/:id/summary", async (req, res) => {
 //Get job status
 app.get("/jobs/:id", async (req, res) => {
   const jobId = req.params.id;
+  const cacheKey = `job:${jobId}`
+
+  const cachedStatus = await redis.get(cacheKey);
+
+  if (cachedStatus) {
+    console.log(`[Redis] Status for ${jobId} from cache`);
+    return res.json({ status: job.status });
+  }
 
   const job = await Jobs.findOne({ _id: new ObjectId(jobId) });
   if (!job) {
     return res.status(404).json({ error: "Job not found" });
   }
+
+  await redis.set(cacheKey, job.status, { Ex: 5});
 
   res.json({ status: job.status });
 });
