@@ -208,32 +208,56 @@ app.get("/materials/:id/note", async (req, res) => {
 });
 
 //Update notes
+// TODO: auth for updating
 app.put("/materials/:id/note", async (req, res) => {
-  const { title, content } = req.body;
-  const materialId = new ObjectId(req.params.id);
+  try{
+    const { title, content } = req.body;
 
-  const material = await StudyMaterials.updateOne({
-    _id: materialId,
-  }, {
-    $set: {
-      title: title,
-      updatedAt: Date.now(),
+    const material = await StudyMaterials.updateOne({
+      _id: new ObjectId(req.params.id),
+    }, {
+      $set: {
+        title: title,
+        updatedAt: Date.now(),
+      }
+    })
+
+    const note = await Notes.updateOne({
+      materialId: req.params.id,
+    }, {
+      $set: {
+        content: content,
+      }
+    })
+
+    if (note.matchedCount === 0) {
+      return res.status(404).json({ error: "Note not found" });
     }
-  })
 
-  const note = await Notes.updateOne({
-    materialId: req.params.id,
-  }, {
-    $set: {
-      content: content,
-    }
-  })
+    res.json([note, material]);
+  } catch (error) {
+    console.error("PUT /materials/:id/note ERROR:", error);
 
-  if (note.matchedCount === 0) {
-    return res.status(404).json({ error: "Note not found" });
+    res.status(500).json({ error: "An internal server error occurred." });
   }
 
-  res.json([note, material]);
+})
+
+// delete notes, studyMaterials, or both
+// TODO: auth for deleting
+app.delete("/materials/:id/note", async (req, res) => {
+  try {
+    const note = await Notes.deleteOne({materialId: req.params.id})
+    const material = await StudyMaterials.deleteOne({_id: new ObjectId(req.params.id)})
+
+    res.json([note, material]);
+
+  } catch (error) {
+    console.error("DEL /materials/:id/note ERROR:", error);
+
+    res.status(500).json({ error: "An internal server error occurred." });
+  }
+
 })
 
 //Get flashcard sets
