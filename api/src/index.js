@@ -93,16 +93,37 @@ app.get("/api/me", async (req, res) => {
   const authId = req.auth.payload.sub;
 
   let user = await Users.findOne({ authId });
-
-  if (!user) {
-    user = {
-      authId,
-      email: req.auth.payload.email,
-      username: req.auth.payload.nickname ?? null,
-      createdAt: Date.now(),
-    };
-    await Users.insertOne(user);
+  if (user) {
+    return res.json(user);
   }
+
+  // Call Auth0 /userinfo ONCE
+  const accessToken = req.headers.authorization.split(" ")[1];
+
+  const userInfoRes = await fetch(
+    `https://${process.env.AUTH0_DOMAIN}/userinfo`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
+
+  if (!userInfoRes.ok) {
+    return res.status(401).json({ error: "Failed to fetch user info" });
+  }
+
+  const userInfo = await userInfoRes.json();
+
+  user = {
+    authId,
+    email: userInfo.email ?? null,
+    username: userInfo.nickname ?? userInfo.name ?? null,
+    picture: userInfo.picture ?? null,
+    createdAt: Date.now(),
+  };
+
+  await Users.insertOne(user);
 
   res.json(user);
 });

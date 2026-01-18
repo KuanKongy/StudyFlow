@@ -30,6 +30,8 @@ services:
     build: ./worker
     volumes:
       - ./worker:/app
+    env_file:
+      - ./worker/.env
     environment:
       - MONGO_URL=mongodb://mongo:27017/study
       - REDIS_URL=redis://redis:6379
