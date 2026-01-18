@@ -180,7 +180,7 @@ apiRouter.get("/jobs/:id", async (req, res) => {
 
   if (cachedStatus) {
     console.log(`[Redis] Status for ${jobId} from cache`);
-    return res.json({ status: job.status });
+    return res.json({ status: cachedStatus });
   }
 
   const job = await Jobs.findOne({ _id: new ObjectId(jobId) });
