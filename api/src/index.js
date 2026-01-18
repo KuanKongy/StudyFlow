@@ -247,8 +247,9 @@ app.put("/materials/:id/note", async (req, res) => {
 // TODO: auth for deleting
 app.delete("/materials/:id/note", async (req, res) => {
   try {
-    const note = await Notes.deleteOne({materialId: req.params.id})
-    const material = await StudyMaterials.deleteOne({_id: new ObjectId(req.params.id)})
+    const materialId =  new ObjectId(req.params.id);
+    const note = await Notes.deleteOne({materialId: materialId});
+    const material = await StudyMaterials.deleteOne({_id: materialId});
 
     res.json([note, material]);
 
