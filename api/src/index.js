@@ -24,6 +24,19 @@ const checkJwt = auth({
   issuerBaseURL: `https://${process.env.AUTH0_DOMAIN}`
 });
 
+const validateId = (req, res, next) => {
+  const id = req.params.id;
+
+  if (!ObjectId.isValid(id)) {
+    return res.status(400).json({ 
+      error: "Invalid ID format",
+      message: `The provided ID '${id}' is not a valid 24-character hex string.`
+    });
+  }
+
+  next();
+};
+
 const db = mongo.db();
 const Notes = db.collection("notes");
 const Jobs = db.collection("jobs");
@@ -142,7 +155,7 @@ app.post("/api/notes", async (req, res) => {
 });
 
 //Create flashcard job
-app.post("/api/materials/:id/flashcards", async (req, res) => {
+app.post("/api/materials/:id/flashcards", validateId, async (req, res) => {
   const inputMaterialId = new ObjectId(req.params.id);
 
   const material = await StudyMaterials.findOne({ _id: inputMaterialId });
@@ -241,7 +254,6 @@ app.get("/api/materials/:id/note", async (req, res) => {
 });
 
 //Update notes
-// TODO: auth for updating
 app.put("/api/materials/:id/note", async (req, res) => {
   try{
     const { title, content } = req.body;
@@ -277,7 +289,6 @@ app.put("/api/materials/:id/note", async (req, res) => {
 })
 
 // delete notes, studyMaterials, or both
-// TODO: auth for deleting
 app.delete("/api/materials/:id/note", async (req, res) => {
   try {
     const materialId =  new ObjectId(req.params.id);
@@ -302,11 +313,51 @@ app.get("/api/materials/:id/flashcard-set", async (req, res) => {
   res.json(set);
 });
 
+app.put("/api/materials/:id/flashcard-set", async (req, res) => {
+  const flashcardsetId =  new ObjectId(req.params.id);
+
+  const { materialId } = req.body;
+  if (!materialId ) return res.status(400).json({ error: "Missing materialId" });
+
+  const flashcardset = await FlashcardSets.updateOne({
+    _id: flashcardsetId
+  }, {
+    $set: {
+      materialId: materialId,
+    }
+  })
+
+  res.json(flashcardset);
+});
+
 //Get flashcards
 app.get("/api/flashcard-sets/:id/cards", async (req, res) => {
   const setId = new ObjectId(req.params.id);
   const cards = await Flashcards.find({ setId }).toArray();
   res.json(cards);
+});
+
+app.put("/api/materials/:id/cards", async (req, res) => {
+  const { setId, question, answer } = req.body;
+  const flashcardId = req.params.id;
+  if (!setId && !question && !answer) return res.status(400).json({ error: "Need to include one of: setId, question, or answer" });
+
+  const updateDoc = { $set: {} };
+  if (setId) updateDoc.$set.setId = setId;
+  if (question) updateDoc.$set.question = question;
+  if (answer) updateDoc.$set.answer = answer;
+  updateDoc.$set.updatedAt = Date.now();
+
+  const result = await Flashcards.updateOne(
+    { _id: new ObjectId(flashcardId) },
+    updateDoc
+  );
+
+  if (result.matchedCount === 0) {
+    return res.status(404).json({ error: "Flashcard not found" });
+  }
+  
+  res.json(result);
 });
 
 //Get all jobs for user
@@ -330,7 +381,8 @@ app.get("/api/users/:id", async (req, res) => {
 //TODO: delete user
 
 //Groups
-//Creat group
+//Create group
+//TODO: add join code in group schema
 app.post("/api/groups", async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "name required" });
@@ -340,6 +392,7 @@ app.post("/api/groups", async (req, res) => {
     ownerId: req.auth.payload.sub,
     memberIds: [req.auth.payload.sub],
     createdAt: Date.now(),
+    updatedAt: Date.now(),
   };
 
   const { insertedId } = await Groups.insertOne(group);
@@ -352,8 +405,45 @@ app.get("/api/groups", async (req, res) => {
     .toArray();
   res.json(groups);
 });
-//TODO: Update group
-//TODO: Delete group
+
+//Update group, will replace memberIds array with new array
+app.put("/api/groups/:id", async (req, res) => {
+  const { name, ownerId, memberIds } = req.body;
+  const groupId = req.params.id;
+  if (!name && !ownerId && !memberIds) return res.status(400).json({ error: "Need to include one of: name, ownerId, or memberId" });
+
+  const updateDoc = { $set: {} };
+  if (name) updateDoc.$set.name = name;
+  if (ownerId) updateDoc.$set.ownerId = ownerId;
+  if (memberIds) updateDoc.$set.memberIds = memberIds;
+  updateDoc.$set.updatedAt = Date.now();
+
+  const result = await Groups.updateOne(
+    { _id: new ObjectId(groupId) },
+    updateDoc
+  );
+
+  if (result.matchedCount === 0) {
+    return res.status(404).json({ error: "Group not found" });
+  }
+  
+  res.json(result);
+})
+//Delete group
+//TODO: make it so only owner can delete
+app.delete("/api/groups/:id", async (req, res) => {
+  const groupId = req.params.id;
+
+  const result = await Groups.deleteOne({ 
+    _id: new ObjectId(groupId) 
+  });
+
+  if (result.deletedCount === 0) {
+    return res.status(404).json({ error: "Group not found" });
+  }
+
+  res.json({ message: "Group deleted successfully", groupId });
+})
 
 //Add user
 app.post("/api/groups/:id/members", async (req, res) => {
@@ -366,17 +456,31 @@ app.post("/api/groups/:id/members", async (req, res) => {
 
   res.json({ ok: true });
 });
+//Remove user
+//TODO: make it so that only own can remove
+app.delete("/api/groups/:id/members", async (req, res) => {
+  const { userId } = req.body;
+
+  await Groups.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $pull: { memberIds: userId } }
+  );
+
+  res.json({ ok: true });
+});
 
 //Topics
 //Create topic
 app.post("/api/topics", async (req, res) => {
-  const { name, groupId } = req.body;
+  const { name, groupId, description } = req.body;
   if (!name) return res.status(400).json({ error: "name required" });
   const topic = {
-    name,
+    title,
     ownerId: req.auth.payload.sub,
+    description: description ? description : "",
     groupId: groupId ? new ObjectId(groupId) : null,
     createdAt: Date.now(),
+    updatedAt: Date.now(),
   };
 
   const { insertedId } = await Topics.insertOne(topic);
@@ -396,6 +500,44 @@ app.get("/api/topics", async (req, res) => {
 
   res.json(topics);
 });
+//Update topic
+app.put("/api/topics/:id", async (req, res) => {
+  const { title, description, ownerId, groupId } = req.body;
+  const topicId = req.params.id;
+  if (!title && !description && !ownerId && !groupId) return res.status(400).json({ error: "Need to include one of: title, description, or ownerId" });
+
+  const updateDoc = { $set: { updatedAt: Date.now() } };
+  if (title) updateDoc.$set.title = title;
+  if (description) updateDoc.$set.description = description;
+  if (ownerId) updateDoc.$set.ownerId = ownerId;
+  if (groupId) updateDoc.$set.groupId = groupId;
+  updateDoc.$set.updatedAt = Date.now();
+
+  const result = await Topics.updateOne(
+    { _id: new ObjectId(topicId) },
+    updateDoc,
+  );
+
+  if (result.matchedCount === 0) {
+    return res.status(404).json({ error: "Topic not found" });
+  }
+  
+  res.json(result);
+});
+//Delete topic
+app.delete("/api/topics/:id", async (req, res) => {
+  const topicId = req.params.id;
+
+  const result = await Topics.deleteOne({ 
+    _id: new ObjectId(topicId) 
+  });
+
+  if (result.deletedCount === 0) {
+    return res.status(404).json({ error: "Topic not found" });
+  }
+
+  res.json({ message: "Topic deleted successfully", topicId });
+})
 
 app.listen(4000, () => {
   console.log("API listening on 4000");
