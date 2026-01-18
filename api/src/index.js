@@ -9,6 +9,7 @@ dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
+const apiRouter = express.Router();
 
 const mongoUrl = process.env.MONGO_URL;
 const redisUrl = process.env.REDIS_URL;
@@ -64,8 +65,10 @@ app.post("/enqueue", async (req, res) => {
   res.json({ jobId: insertedId });
 });
 
+apiRouter.use(checkJwt);
+
 //Test Auth
-app.get("/api/private", checkJwt, (req, res) => {
+apiRouter.get("/private", (req, res) => {
   res.json({
     message: "You are authenticated!",
     user: req.auth.payload
@@ -74,7 +77,7 @@ app.get("/api/private", checkJwt, (req, res) => {
 
 //MongoDB
 //Auth User
-app.get("/me", checkJwt, async (req, res) => {
+apiRouter.get("/me", async (req, res) => {
   const authId = req.auth.payload.sub;
 
   let user = await Users.findOne({ authId });
@@ -93,7 +96,7 @@ app.get("/me", checkJwt, async (req, res) => {
 });
 
 //Create note
-app.post("/notes",checkJwt, async (req, res) => {
+apiRouter.post("/notes", async (req, res) => {
   const { title, content, topicId } = req.body;
   if (!content || !title || !topicId) {
     return res.status(400).json({ error: "missing data required" });
@@ -119,7 +122,7 @@ app.post("/notes",checkJwt, async (req, res) => {
 });
 
 //Create flashcard job
-app.post("/materials/:id/flashcards", async (req, res) => {
+apiRouter.post("/materials/:id/flashcards", async (req, res) => {
   const inputMaterialId = new ObjectId(req.params.id);
 
   const material = await StudyMaterials.findOne({ _id: inputMaterialId });
@@ -146,7 +149,7 @@ app.post("/materials/:id/flashcards", async (req, res) => {
 });
 
 //Create summary job
-app.post("/materials/:id/summary", async (req, res) => {
+apiRouter.post("/materials/:id/summary", async (req, res) => {
   const inputMaterialId = new ObjectId(req.params.id);
 
   const material = await StudyMaterials.findOne({ _id: inputMaterialId });
@@ -169,7 +172,7 @@ app.post("/materials/:id/summary", async (req, res) => {
 });
 
 //Get job status
-app.get("/jobs/:id", async (req, res) => {
+apiRouter.get("/jobs/:id", async (req, res) => {
   const jobId = req.params.id;
   const cacheKey = `job:${jobId}`
 
@@ -191,7 +194,7 @@ app.get("/jobs/:id", async (req, res) => {
 });
 
 //Get all materials for a topic
-app.get("/topics/:id/materials", async (req, res) => {
+apiRouter.get("/topics/:id/materials", async (req, res) => {
   const topicId = new ObjectId(req.params.id);
   const materials = await StudyMaterials
     .find({ topicId })
@@ -202,7 +205,7 @@ app.get("/topics/:id/materials", async (req, res) => {
 });
 
 //Get material details (note OR flashcard set)
-app.get("/materials/:id", async (req, res) => {
+apiRouter.get("/materials/:id", async (req, res) => {
   const material = await StudyMaterials.findOne({
     _id: new ObjectId(req.params.id),
   });
@@ -210,7 +213,7 @@ app.get("/materials/:id", async (req, res) => {
 });
 
 //Get notes
-app.get("/materials/:id/note", async (req, res) => {
+apiRouter.get("/materials/:id/note", async (req, res) => {
   const note = await Notes.findOne({
     materialId: new ObjectId(req.params.id),
   });
@@ -219,7 +222,7 @@ app.get("/materials/:id/note", async (req, res) => {
 
 //Update notes
 // TODO: auth for updating
-app.put("/materials/:id/note", async (req, res) => {
+apiRouter.put("/materials/:id/note", async (req, res) => {
   try{
     const { title, content } = req.body;
 
@@ -255,7 +258,7 @@ app.put("/materials/:id/note", async (req, res) => {
 
 // delete notes, studyMaterials, or both
 // TODO: auth for deleting
-app.delete("/materials/:id/note", async (req, res) => {
+apiRouter.delete("/materials/:id/note", async (req, res) => {
   try {
     const materialId =  new ObjectId(req.params.id);
     const note = await Notes.deleteOne({materialId: materialId});
@@ -272,7 +275,7 @@ app.delete("/materials/:id/note", async (req, res) => {
 })
 
 //Get flashcard sets
-app.get("/materials/:id/flashcard-set", async (req, res) => {
+apiRouter.get("/materials/:id/flashcard-set", async (req, res) => {
   const set = await FlashcardSets.findOne({
     materialId: new ObjectId(req.params.id),
   });
@@ -280,14 +283,14 @@ app.get("/materials/:id/flashcard-set", async (req, res) => {
 });
 
 //Get flashcards
-app.get("/flashcard-sets/:id/cards", async (req, res) => {
+apiRouter.get("/flashcard-sets/:id/cards", async (req, res) => {
   const setId = new ObjectId(req.params.id);
   const cards = await Flashcards.find({ setId }).toArray();
   res.json(cards);
 });
 
 //Get all jobs for user
-app.get("/jobs", checkJwt, async (req, res) => {
+apiRouter.get("/jobs", async (req, res) => {
   const jobs = await Jobs
     .find({ ownerId: req.auth.payload.sub })
     .sort({ createdAt: -1 })
@@ -297,7 +300,7 @@ app.get("/jobs", checkJwt, async (req, res) => {
 });
 
 // Get user by id
-app.get("/users/:id", async (req, res) => {
+apiRouter.get("/users/:id", async (req, res) => {
   const user = await Users.findOne({ _id: new ObjectId(req.params.id) });
   if (!user) return res.status(404).json({ error: "User not found" });
   res.json(user);
@@ -305,7 +308,7 @@ app.get("/users/:id", async (req, res) => {
 
 //Groups
 //Creat group
-app.post("/groups", checkJwt, async (req, res) => {
+apiRouter.post("/groups", async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "name required" });
 
@@ -320,14 +323,14 @@ app.post("/groups", checkJwt, async (req, res) => {
   res.json({ groupId: insertedId });
 });
 //Get group
-app.get("/groups", async (req, res) => {
+apiRouter.get("/groups", async (req, res) => {
   const groups = await Groups
     .find({ memberIds: "dev-user" })
     .toArray();
   res.json(groups);
 });
 //Add user
-app.post("/groups/:id/members", async (req, res) => {
+apiRouter.post("/groups/:id/members", async (req, res) => {
   const { userId } = req.body;
 
   await Groups.updateOne(
@@ -340,7 +343,7 @@ app.post("/groups/:id/members", async (req, res) => {
 
 //Topics
 //Create topic
-app.post("/topics", checkJwt, async (req, res) => {
+apiRouter.post("/topics", async (req, res) => {
   const { name, groupId } = req.body;
   if (!name) return res.status(400).json({ error: "name required" });
   const topic = {
@@ -354,7 +357,7 @@ app.post("/topics", checkJwt, async (req, res) => {
   res.json({ topicId: insertedId });
 });
 //Get topic (user+groups)
-app.get("/topics", checkJwt, async (req, res) => {
+apiRouter.get("/topics", async (req, res) => {
   const groups = await Groups.find({ memberIds: req.auth.payload.sub }).toArray();
   const groupIds = groups.map(g => g._id);
 
@@ -367,6 +370,8 @@ app.get("/topics", checkJwt, async (req, res) => {
 
   res.json(topics);
 });
+
+app.use("/api", apiRouter);
 
 app.listen(4000, () => {
   console.log("API listening on 4000");
