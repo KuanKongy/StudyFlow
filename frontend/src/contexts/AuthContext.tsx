@@ -15,9 +15,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const mockUser: User = {
   id: 'user-1',
   authId: 'auth0|123',
-  email: 'alex@studyflow.com',
-  username: 'Nam Le',
-  name: 'Alex Chen',
+  email: 'johndoe@studyflow.com',
+  username: 'johndoe',
+  name: 'John Doe',
   createdAt: '2024-01-01T10:00:00Z',
   avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=john',
 };
