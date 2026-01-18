@@ -1,5 +1,5 @@
 # StudyFlow
-DevPost: https://devpost.com/submit-to/25829-united-hacks-v6/manage/submissions
+DevPost: https://devpost.com/software/studyflow-4r2bgc
 
 StudyFlow is an intelligent study assistant platform designed to enhance learning by leveraging AI-powered tools. It allows users to organize, manage, and interact with study content efficiently, using a combination of a React frontend, API server, Redis queue/cache, and worker server integration with AI APIs.
 
