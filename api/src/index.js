@@ -24,6 +24,19 @@ const checkJwt = auth({
   issuerBaseURL: `https://${process.env.AUTH0_DOMAIN}`
 });
 
+const validateId = (req, res, next) => {
+  const id = req.params.id;
+
+  if (!ObjectId.isValid(id)) {
+    return res.status(400).json({ 
+      error: "Invalid ID format",
+      message: `The provided ID '${id}' is not a valid 24-character hex string.`
+    });
+  }
+
+  next();
+};
+
 const db = mongo.db();
 const Notes = db.collection("notes");
 const Jobs = db.collection("jobs");
@@ -121,7 +134,7 @@ app.post("/api/notes", async (req, res) => {
 });
 
 //Create flashcard job
-app.post("/api/materials/:id/flashcards", async (req, res) => {
+app.post("/api/materials/:id/flashcards", validateId, async (req, res) => {
   const inputMaterialId = new ObjectId(req.params.id);
 
   const material = await StudyMaterials.findOne({ _id: inputMaterialId });
@@ -220,7 +233,6 @@ app.get("/api/materials/:id/note", async (req, res) => {
 });
 
 //Update notes
-// TODO: auth for updating
 app.put("/api/materials/:id/note", async (req, res) => {
   try{
     const { title, content } = req.body;
@@ -256,7 +268,6 @@ app.put("/api/materials/:id/note", async (req, res) => {
 })
 
 // delete notes, studyMaterials, or both
-// TODO: auth for deleting
 app.delete("/api/materials/:id/note", async (req, res) => {
   try {
     const materialId =  new ObjectId(req.params.id);
@@ -281,11 +292,51 @@ app.get("/api/materials/:id/flashcard-set", async (req, res) => {
   res.json(set);
 });
 
+app.put("/api/materials/:id/flashcard-set", async (req, res) => {
+  const flashcardsetId =  new ObjectId(req.params.id);
+
+  const { materialId } = req.body;
+  if (!materialId ) return res.status(400).json({ error: "Missing materialId" });
+
+  const flashcardset = await FlashcardSets.updateOne({
+    _id: flashcardsetId
+  }, {
+    $set: {
+      materialId: materialId,
+    }
+  })
+
+  res.json(flashcardset);
+});
+
 //Get flashcards
 app.get("/api/flashcard-sets/:id/cards", async (req, res) => {
   const setId = new ObjectId(req.params.id);
   const cards = await Flashcards.find({ setId }).toArray();
   res.json(cards);
+});
+
+app.put("/api/materials/:id/cards", async (req, res) => {
+  const { setId, question, answer } = req.body;
+  const flashcardId = req.params.id;
+  if (!setId && !question && !answer) return res.status(400).json({ error: "Need to include one of: setId, question, or answer" });
+
+  const updateDoc = { $set: {} };
+  if (setId) updateDoc.$set.setId = setId;
+  if (question) updateDoc.$set.question = question;
+  if (answer) updateDoc.$set.answer = answer;
+  updateDoc.$set.updatedAt = Date.now();
+
+  const result = await Flashcards.updateOne(
+    { _id: new ObjectId(flashcardId) },
+    updateDoc
+  );
+
+  if (result.matchedCount === 0) {
+    return res.status(404).json({ error: "Flashcard not found" });
+  }
+  
+  res.json(result);
 });
 
 //Get all jobs for user
@@ -344,6 +395,7 @@ app.put("/api/groups/:id", async (req, res) => {
   if (name) updateDoc.$set.name = name;
   if (ownerId) updateDoc.$set.ownerId = ownerId;
   if (memberIds) updateDoc.$set.memberIds = memberIds;
+  updateDoc.$set.updatedAt = Date.now();
 
   const result = await Groups.updateOne(
     { _id: new ObjectId(groupId) },
@@ -438,6 +490,7 @@ app.put("/api/topics/:id", async (req, res) => {
   if (description) updateDoc.$set.description = description;
   if (ownerId) updateDoc.$set.ownerId = ownerId;
   if (groupId) updateDoc.$set.groupId = groupId;
+  updateDoc.$set.updatedAt = Date.now();
 
   const result = await Topics.updateOne(
     { _id: new ObjectId(topicId) },
