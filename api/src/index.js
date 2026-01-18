@@ -320,6 +320,7 @@ app.post("/api/groups", async (req, res) => {
     ownerId: req.auth.payload.sub,
     memberIds: [req.auth.payload.sub],
     createdAt: Date.now(),
+    updatedAt: Date.now(),
   };
 
   const { insertedId } = await Groups.insertOne(group);
@@ -337,7 +338,7 @@ app.get("/api/groups", async (req, res) => {
 app.put("/api/groups/:id", async (req, res) => {
   const { name, ownerId, memberIds } = req.body;
   const groupId = req.params.id;
-  if (!name && !ownerId && !memberIds) return res.status(400).json({ error: "Need to include one of: name, owerId, or memberId" });
+  if (!name && !ownerId && !memberIds) return res.status(400).json({ error: "Need to include one of: name, ownerId, or memberId" });
 
   const updateDoc = { $set: {} };
   if (name) updateDoc.$set.name = name;
@@ -356,6 +357,7 @@ app.put("/api/groups/:id", async (req, res) => {
   res.json(result);
 })
 //Delete group
+//TODO: make it so only owner can delete
 app.delete("/api/groups/:id", async (req, res) => {
   const groupId = req.params.id;
 
@@ -382,6 +384,7 @@ app.post("/api/groups/:id/members", async (req, res) => {
   res.json({ ok: true });
 });
 //Remove user
+//TODO: make it so that only own can remove
 app.delete("/api/groups/:id/members", async (req, res) => {
   const { userId } = req.body;
 
@@ -396,13 +399,15 @@ app.delete("/api/groups/:id/members", async (req, res) => {
 //Topics
 //Create topic
 app.post("/api/topics", async (req, res) => {
-  const { name, groupId } = req.body;
+  const { name, groupId, description } = req.body;
   if (!name) return res.status(400).json({ error: "name required" });
   const topic = {
-    name,
+    title,
     ownerId: req.auth.payload.sub,
+    description: description ? description : "",
     groupId: groupId ? new ObjectId(groupId) : null,
     createdAt: Date.now(),
+    updatedAt: Date.now(),
   };
 
   const { insertedId } = await Topics.insertOne(topic);
@@ -422,6 +427,43 @@ app.get("/api/topics", async (req, res) => {
 
   res.json(topics);
 });
+//Update topic
+app.put("/api/topics/:id", async (req, res) => {
+  const { title, description, ownerId, groupId } = req.body;
+  const topicId = req.params.id;
+  if (!title && !description && !ownerId && !groupId) return res.status(400).json({ error: "Need to include one of: title, description, or ownerId" });
+
+  const updateDoc = { $set: { updatedAt: Date.now() } };
+  if (title) updateDoc.$set.title = title;
+  if (description) updateDoc.$set.description = description;
+  if (ownerId) updateDoc.$set.ownerId = ownerId;
+  if (groupId) updateDoc.$set.groupId = groupId;
+
+  const result = await Topics.updateOne(
+    { _id: new ObjectId(topicId) },
+    updateDoc,
+  );
+
+  if (result.matchedCount === 0) {
+    return res.status(404).json({ error: "Topic not found" });
+  }
+  
+  res.json(result);
+});
+//Delete topic
+app.delete("/api/topics/:id", async (req, res) => {
+  const topicId = req.params.id;
+
+  const result = await Topics.deleteOne({ 
+    _id: new ObjectId(topicId) 
+  });
+
+  if (result.deletedCount === 0) {
+    return res.status(404).json({ error: "Topic not found" });
+  }
+
+  res.json({ message: "Topic deleted successfully", topicId });
+})
 
 app.listen(4000, () => {
   console.log("API listening on 4000");
