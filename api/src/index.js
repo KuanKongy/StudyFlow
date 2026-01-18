@@ -188,7 +188,7 @@ apiRouter.get("/jobs/:id", async (req, res) => {
     return res.status(404).json({ error: "Job not found" });
   }
 
-  await redis.set(cacheKey, job.status, { Ex: 5});
+  await redis.set(cacheKey, job.status, { Ex: 30});
 
   res.json({ status: job.status });
 });
@@ -221,7 +221,6 @@ apiRouter.get("/materials/:id/note", async (req, res) => {
 });
 
 //Update notes
-// TODO: auth for updating
 apiRouter.put("/materials/:id/note", async (req, res) => {
   try{
     const { title, content } = req.body;
@@ -256,8 +255,7 @@ apiRouter.put("/materials/:id/note", async (req, res) => {
 
 })
 
-// delete notes, studyMaterials, or both
-// TODO: auth for deleting
+// delete notes
 apiRouter.delete("/materials/:id/note", async (req, res) => {
   try {
     const materialId =  new ObjectId(req.params.id);
@@ -305,9 +303,12 @@ apiRouter.get("/users/:id", async (req, res) => {
   if (!user) return res.status(404).json({ error: "User not found" });
   res.json(user);
 });
+// TODO:? post user?
+//TODO: update user
+//TODO: delete user
 
 //Groups
-//Creat group
+//Create group
 apiRouter.post("/groups", async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "name required" });
@@ -329,6 +330,9 @@ apiRouter.get("/groups", async (req, res) => {
     .toArray();
   res.json(groups);
 });
+//TODO: Update group
+//TODO: Delete group
+
 //Add user
 apiRouter.post("/groups/:id/members", async (req, res) => {
   const { userId } = req.body;
@@ -370,6 +374,9 @@ apiRouter.get("/topics", async (req, res) => {
 
   res.json(topics);
 });
+
+//TODO: Update topic
+//TODO: Delete topic
 
 app.use("/api", apiRouter);
 
