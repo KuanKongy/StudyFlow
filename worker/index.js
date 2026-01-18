@@ -173,6 +173,17 @@ async function handleGenerateFlashcards(job) {
     }))
   );
 
+  
+    
+  if (inputMaterial && inputMaterial.topicId) {
+    const cacheKey = `topic:${inputMaterial.topicId.toString()}:materials`;
+    await redis.del(cacheKey);
+    console.log(`[Redis] Cache busted for topic: ${inputMaterial.topicId}`);
+  }
+    
+
+  await redis.set(`job:${job._id.toString()}`, "done", { EX: 30 });
+  
   //Update job
   await Jobs.updateOne(
     { _id: job._id },
