@@ -356,9 +356,26 @@ app.put("/api/materials/:id/flashcard-set", async (req, res) => {
 
 //Get flashcards
 app.get("/api/flashcard-sets/:id/cards", async (req, res) => {
-  const setId = new ObjectId(req.params.id);
-  const cards = await Flashcards.find({ setId }).toArray();
-  res.json(cards);
+  const setId = req.params.id;
+  const cacheKey = `set:${setId}:cards`;
+
+  try {
+    const cachedCards = await redis.get(cacheKey);
+    if (cachedCards) {
+      return res.json(JSON.parse(cachedCards));
+    }
+
+    const cards = await Flashcards.find({ 
+      setId: new ObjectId(setId) 
+    }).toArray();
+
+    await redis.set(cacheKey, JSON.stringify(cards), { EX: 3600 });
+
+    res.json(cards);
+  } catch (error) {
+    console.error("GET cards error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 app.put("/api/materials/:id/cards", async (req, res) => {
@@ -383,6 +400,7 @@ app.put("/api/materials/:id/cards", async (req, res) => {
 
   const flashcard = await Flashcards.findOne({_id: new ObjectId(flashcardId)})
   if (flashcard && flashcard?.setId) {
+    await redis.del(`set:${flashcard.setId.toString()}:cards`);
     const flashcardSet = await FlashcardSets.findOne({_id: new ObjectId(flashcard.setId)});
     if (flashcardSet && flashcardSet?.topicId) {
       await redis.del(`topic:${flashcardSet.topicId}:materials`);
