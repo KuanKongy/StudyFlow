@@ -309,7 +309,8 @@ app.get("/api/users/:id", async (req, res) => {
 //TODO: delete user
 
 //Groups
-//Creat group
+//Create group
+//TODO: add join code in group schema
 app.post("/api/groups", async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "name required" });
@@ -331,8 +332,43 @@ app.get("/api/groups", async (req, res) => {
     .toArray();
   res.json(groups);
 });
-//TODO: Update group
-//TODO: Delete group
+
+//Update group, will replace memberIds array with new array
+app.put("/api/groups/:id", async (req, res) => {
+  const { name, ownerId, memberIds } = req.body;
+  const groupId = req.params.id;
+  if (!name && !ownerId && !memberIds) return res.status(400).json({ error: "Need to include one of: name, owerId, or memberId" });
+
+  const updateDoc = { $set: {} };
+  if (name) updateDoc.$set.name = name;
+  if (ownerId) updateDoc.$set.ownerId = ownerId;
+  if (memberIds) updateDoc.$set.memberIds = memberIds;
+
+  const result = await Groups.updateOne(
+    { _id: new ObjectId(groupId) },
+    updateDoc
+  );
+
+  if (result.matchedCount === 0) {
+    return res.status(404).json({ error: "Group not found" });
+  }
+  
+  res.json(result);
+})
+//Delete group
+app.delete("/api/groups/:id", async (req, res) => {
+  const groupId = req.params.id;
+
+  const result = await Groups.deleteOne({ 
+    _id: new ObjectId(groupId) 
+  });
+
+  if (result.deletedCount === 0) {
+    return res.status(404).json({ error: "Group not found" });
+  }
+
+  res.json({ message: "Group deleted successfully", groupId });
+})
 
 //Add user
 app.post("/api/groups/:id/members", async (req, res) => {
@@ -341,6 +377,17 @@ app.post("/api/groups/:id/members", async (req, res) => {
   await Groups.updateOne(
     { _id: new ObjectId(req.params.id) },
     { $addToSet: { memberIds: userId } }
+  );
+
+  res.json({ ok: true });
+});
+//Remove user
+app.delete("/api/groups/:id/members", async (req, res) => {
+  const { userId } = req.body;
+
+  await Groups.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $pull: { memberIds: userId } }
   );
 
   res.json({ ok: true });
