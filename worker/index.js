@@ -85,7 +85,11 @@ async function handleGenerateFlashcards(job) {
   }
 
   if (note.content.length > 50_000) {
-    throw new Error("Note too large to summarize");
+    await Jobs.updateOne(
+      { _id: job._id },
+      { $set: { status: "failed", error: "Note too large to summarize" } }
+    );
+    return;
   }
 
   // AI call
@@ -204,7 +208,11 @@ async function handleGenerateSummary(job) {
   }
 
   if (note.content.length > 50_000) {
-    throw new Error("Note too large to summarize");
+    await Jobs.updateOne(
+      { _id: job._id },
+      { $set: { status: "failed", error: "Note too large to summarize" } }
+    );
+    return;
   }
 
   // AI call
