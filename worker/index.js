@@ -85,7 +85,11 @@ async function handleGenerateFlashcards(job) {
   }
 
   if (note.content.length > 50_000) {
-    throw new Error("Note too large to summarize");
+    await Jobs.updateOne(
+      { _id: job._id },
+      { $set: { status: "failed", error: "Note too large to summarize" } }
+    );
+    return;
   }
 
   // AI call
@@ -173,17 +177,6 @@ async function handleGenerateFlashcards(job) {
     }))
   );
 
-  
-    
-  if (inputMaterial && inputMaterial.topicId) {
-    const topicCacheKey = `topic:${inputMaterial.topicId.toString()}:materials`;
-    await redis.del(topicCacheKey);
-    console.log(`[Redis] Cache busted for topic: ${inputMaterial.topicId}`);
-  }
-  
-  await redis.del(`set:${setId.toString()}:cards`);
-  await redis.set(`job:${job._id.toString()}`, "done", { EX: 30 });
-  
   //Update job
   await Jobs.updateOne(
     { _id: job._id },
@@ -214,9 +207,13 @@ async function handleGenerateSummary(job) {
       return;
     }
 
-    if (note.content.length > 50_000) {
-      throw new Error("Note too large to summarize");
-    }
+  if (note.content.length > 50_000) {
+    await Jobs.updateOne(
+      { _id: job._id },
+      { $set: { status: "failed", error: "Note too large to summarize" } }
+    );
+    return;
+  }
 
     // AI call
     const completion = await openai.chat.completions.create({
