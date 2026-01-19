@@ -198,7 +198,6 @@ async function handleGenerateFlashcards(job) {
 }
 
 //Generate summary
-//TODO: error handling
 async function handleGenerateSummary(job) {
   try {
     await Jobs.updateOne(
