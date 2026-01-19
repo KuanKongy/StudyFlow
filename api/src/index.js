@@ -151,10 +151,15 @@ app.post("/api/notes", async (req, res) => {
     content,
   });
 
+  if (topicId) {
+    await redis.del(`topic:${topicId}:materials`);
+  }
+
   res.json({ materialId });
 });
 
 //Create flashcard job
+// worker must clear redis
 app.post("/api/materials/:id/flashcards", validateId, async (req, res) => {
   const inputMaterialId = new ObjectId(req.params.id);
 
@@ -229,10 +234,17 @@ app.get("/api/jobs/:id", async (req, res) => {
 //Get all materials for a topic
 app.get("/api/topics/:id/materials", async (req, res) => {
   const topicId = new ObjectId(req.params.id);
+  const key = `topic:${topicId}:materials`;
+
+  const cached = await redis.get(key);
+  if (cached) return res.json(JSON.parse(cached));
+
   const materials = await StudyMaterials
     .find({ topicId })
     .sort({ createdAt: -1 })
     .toArray();
+
+  await redis.set(key, JSON.stringify(materials), { EX: 600 });
 
   res.json(materials);
 });
@@ -257,9 +269,10 @@ app.get("/api/materials/:id/note", async (req, res) => {
 app.put("/api/materials/:id/note", async (req, res) => {
   try{
     const { title, content } = req.body;
+    const materialId = new ObjectId(req.params.id);
 
     const material = await StudyMaterials.updateOne({
-      _id: new ObjectId(req.params.id),
+      _id: materialId,
     }, {
       $set: {
         title: title,
@@ -268,7 +281,7 @@ app.put("/api/materials/:id/note", async (req, res) => {
     })
 
     const note = await Notes.updateOne({
-      materialId: req.params.id,
+      materialId: materialId,
     }, {
       $set: {
         content: content,
@@ -278,6 +291,12 @@ app.put("/api/materials/:id/note", async (req, res) => {
     if (note.matchedCount === 0) {
       return res.status(404).json({ error: "Note not found" });
     }
+    // update the cache if study material has a topic
+    const studyMaterial = await StudyMaterials.findOne({ _id: materialId})
+    if (studyMaterial?.topicId) {
+      await redis.del(`topic:${studyMaterial.topicId}:materials`);
+    }
+    
 
     res.json([note, material]);
   } catch (error) {
@@ -292,11 +311,16 @@ app.put("/api/materials/:id/note", async (req, res) => {
 app.delete("/api/materials/:id/note", async (req, res) => {
   try {
     const materialId =  new ObjectId(req.params.id);
+    const studyMaterial = await StudyMaterials.findOne({ _id: materialId})
+
     const note = await Notes.deleteOne({materialId: materialId});
     const material = await StudyMaterials.deleteOne({_id: materialId});
 
-    res.json([note, material]);
+    if (studyMaterial?.topicId) {
+      await redis.del(`topic:${studyMaterial.topicId}:materials`);
+    }
 
+    res.json([note, material]);
   } catch (error) {
     console.error("DEL /materials/:id/note ERROR:", error);
 
@@ -332,9 +356,26 @@ app.put("/api/materials/:id/flashcard-set", async (req, res) => {
 
 //Get flashcards
 app.get("/api/flashcard-sets/:id/cards", async (req, res) => {
-  const setId = new ObjectId(req.params.id);
-  const cards = await Flashcards.find({ setId }).toArray();
-  res.json(cards);
+  const setId = req.params.id;
+  const cacheKey = `set:${setId}:cards`;
+
+  try {
+    const cachedCards = await redis.get(cacheKey);
+    if (cachedCards) {
+      return res.json(JSON.parse(cachedCards));
+    }
+
+    const cards = await Flashcards.find({ 
+      setId: new ObjectId(setId) 
+    }).toArray();
+
+    await redis.set(cacheKey, JSON.stringify(cards), { EX: 3600 });
+
+    res.json(cards);
+  } catch (error) {
+    console.error("GET cards error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 app.put("/api/materials/:id/cards", async (req, res) => {
@@ -356,6 +397,15 @@ app.put("/api/materials/:id/cards", async (req, res) => {
   if (result.matchedCount === 0) {
     return res.status(404).json({ error: "Flashcard not found" });
   }
+
+  const flashcard = await Flashcards.findOne({_id: new ObjectId(flashcardId)})
+  if (flashcard && flashcard?.setId) {
+    await redis.del(`set:${flashcard.setId.toString()}:cards`);
+    const flashcardSet = await FlashcardSets.findOne({_id: new ObjectId(flashcard.setId)});
+    if (flashcardSet && flashcardSet?.topicId) {
+      await redis.del(`topic:${flashcardSet.topicId}:materials`);
+    }
+  }
   
   res.json(result);
 });
@@ -376,9 +426,6 @@ app.get("/api/users/:id", async (req, res) => {
   if (!user) return res.status(404).json({ error: "User not found" });
   res.json(user);
 });
-// TODO:? post user?
-//TODO: update user
-//TODO: delete user
 
 //Groups
 //Create group
@@ -401,7 +448,7 @@ app.post("/api/groups", async (req, res) => {
 //Get group
 app.get("/api/groups", async (req, res) => {
   const groups = await Groups
-    .find({ memberIds: "dev-user" })
+    .find({ memberIds: req.auth.payload.sub })
     .toArray();
   res.json(groups);
 });
@@ -472,8 +519,8 @@ app.delete("/api/groups/:id/members", async (req, res) => {
 //Topics
 //Create topic
 app.post("/api/topics", async (req, res) => {
-  const { name, groupId, description } = req.body;
-  if (!name) return res.status(400).json({ error: "name required" });
+  const { title, groupId, description } = req.body;
+  if (!title) return res.status(400).json({ error: "title required" });
   const topic = {
     title,
     ownerId: req.auth.payload.sub,
