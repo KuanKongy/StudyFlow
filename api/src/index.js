@@ -4,6 +4,7 @@ import { createClient } from "redis";
 import { auth } from "express-oauth2-jwt-bearer";
 import cors from "cors";
 import dotenv from "dotenv";
+import { validateId } from "./middleware/validateId";
 dotenv.config();
 
 const app = express();
@@ -23,18 +24,6 @@ const checkJwt = auth({
   audience: process.env.AUTH0_AUDIENCE,
   issuerBaseURL: `https://${process.env.AUTH0_DOMAIN}`
 });
-
-const validateId = (req, res, next, id) => {
-
-  if (!ObjectId.isValid(id)) {
-    return res.status(400).json({ 
-      error: "Invalid ID format",
-      message: `The provided ID '${id}' is not a valid 24-character hex string.`
-    });
-  }
-
-  next();
-};
 
 const db = mongo.db();
 const Notes = db.collection("notes");
