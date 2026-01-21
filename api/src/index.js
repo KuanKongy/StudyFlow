@@ -24,8 +24,7 @@ const checkJwt = auth({
   issuerBaseURL: `https://${process.env.AUTH0_DOMAIN}`
 });
 
-const validateId = (req, res, next) => {
-  const id = req.params.id;
+const validateId = (req, res, next, id) => {
 
   if (!ObjectId.isValid(id)) {
     return res.status(400).json({ 
@@ -78,6 +77,7 @@ app.post("/enqueue", async (req, res) => {
 });
 
 app.use("/api", checkJwt);
+app.param("id", validateId);
 
 //Test Auth
 app.get("/api/private", (req, res) => {
