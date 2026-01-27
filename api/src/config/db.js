@@ -15,5 +15,5 @@ export const connectDB = async () => {
     console.log("Connected to Mongo + Redis");
 };
 
-export const db = mongo.db();
+export const mongoClient = mongo;
 export const redisClient = redis;

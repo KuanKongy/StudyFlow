@@ -1,31 +1,25 @@
 import express from "express";
-import { MongoClient, ObjectId } from "mongodb";
+import { ObjectId } from "mongodb";
 import { createClient } from "redis";
 import { auth } from "express-oauth2-jwt-bearer";
 import cors from "cors";
 import dotenv from "dotenv";
 import { validateId } from "./middleware/validateId.js";
+import { mongoClient, redisClient, connectDB } from "./config/db.js";
 dotenv.config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const mongoUrl = process.env.MONGO_URL;
-const redisUrl = process.env.REDIS_URL;
-
-const mongo = new MongoClient(mongoUrl);
-const redis = createClient({ url: redisUrl });
-
-await mongo.connect();
-await redis.connect();
+connectDB();
 
 const checkJwt = auth({
   audience: process.env.AUTH0_AUDIENCE,
   issuerBaseURL: `https://${process.env.AUTH0_DOMAIN}`
 });
 
-const db = mongo.db();
+const db = mongoClient.db();
 const Notes = db.collection("notes");
 const Jobs = db.collection("jobs");
 const Flashcards = db.collection("flashcards");
@@ -46,7 +40,6 @@ await Groups.createIndex({ memberIds: 1 });
 await Topics.createIndex({ ownerId: 1 });
 await Topics.createIndex({ groupId: 1 });
 
-console.log("API connected to Mongo + Redis");
 
 //Health Check
 app.get("/health", (req, res) => {
