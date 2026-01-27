@@ -4,7 +4,7 @@ import { createClient } from "redis";
 import { auth } from "express-oauth2-jwt-bearer";
 import cors from "cors";
 import dotenv from "dotenv";
-import { validateId } from "./middleware/validateId";
+import { validateId } from "./middleware/validateId.js";
 dotenv.config();
 
 const app = express();
