@@ -290,3 +290,362 @@ app.delete("/api/account", async (req, res) => {
     res.status(500).json({ error: "Account deletion failed" });
   }
 });
+
+// ===================== Notes =====================
+
+app.post("/api/notes", async (req, res) => {
+  const { title, content, topicId } = req.body;
+  if (!content || !title || !topicId) {
+    return res.status(400).json({ error: "missing data required" });
+  }
+  const material = {
+    type: "note",
+    title,
+    ownerId: req.auth.payload.sub,
+    topicId: topicId ? new ObjectId(topicId) : null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  const { insertedId: materialId } = await StudyMaterials.insertOne(material);
+  await Notes.insertOne({ materialId, content });
+  if (topicId) {
+    await redis.del(`topic:${topicId}:materials`);
+  }
+  res.json({ materialId });
+});
+
+// AI job endpoints — gov-002 (amended): requires access to source note (ownership or group membership)
+app.post("/api/materials/:id/flashcards", validateId, aiRateLimiter, aiCircuitBreaker, async (req, res) => {
+  const inputMaterialId = new ObjectId(req.params.id);
+  const material = await StudyMaterials.findOne({ _id: inputMaterialId });
+  if (!material || material.type !== "note") {
+    return res.status(400).json({ error: "Invalid input material" });
+  }
+  const allowed = await canAccessMaterial(material, req.auth.payload.sub);
+  if (!allowed) {
+    return res.status(403).json({ error: "Forbidden — you do not have access to this material" });
+  }
+
+  const job = {
+    type: "GENERATE_FLASHCARDS",
+    inputMaterialId,
+    ownerId: req.auth.payload.sub,
+    status: "queued",
+    retries: 0,
+    createdAt: Date.now(),
+  };
+  const { insertedId } = await Jobs.insertOne(job);
+  await redis.lPush("queue:jobs", JSON.stringify({ jobId: insertedId.toString() }));
+  res.json({ jobId: insertedId });
+});
+
+app.post("/api/materials/:id/summary", validateId, aiRateLimiter, aiCircuitBreaker, async (req, res) => {
+  const inputMaterialId = new ObjectId(req.params.id);
+  const material = await StudyMaterials.findOne({ _id: inputMaterialId });
+  if (!material || material.type !== "note") {
+    return res.status(400).json({ error: "Invalid input material" });
+  }
+  const allowed = await canAccessMaterial(material, req.auth.payload.sub);
+  if (!allowed) {
+    return res.status(403).json({ error: "Forbidden — you do not have access to this material" });
+  }
+
+  const job = {
+    type: "GENERATE_SUMMARY",
+    inputMaterialId,
+    ownerId: req.auth.payload.sub,
+    status: "queued",
+    retries: 0,
+    createdAt: Date.now(),
+  };
+  const { insertedId } = await Jobs.insertOne(job);
+  await redis.lPush("queue:jobs", JSON.stringify({ jobId: insertedId.toString() }));
+  res.json({ jobId: insertedId });
+});
+
+// ===================== Jobs =====================
+
+app.get("/api/jobs/:id", async (req, res) => {
+  const jobId = req.params.id;
+  const cacheKey = `job:${jobId}`;
+  const cachedStatus = await redis.get(cacheKey);
+  if (cachedStatus) {
+    return res.json({ status: cachedStatus });
+  }
+  const job = await Jobs.findOne({ _id: new ObjectId(jobId) });
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  await redis.set(cacheKey, job.status, { EX: 30 });
+  res.json({ status: job.status });
+});
+
+app.get("/api/jobs", async (req, res) => {
+  const jobs = await Jobs
+    .find({ ownerId: req.auth.payload.sub })
+    .sort({ createdAt: -1 })
+    .toArray();
+  res.json(jobs);
+});
+
+// ===================== Materials =====================
+
+app.get("/api/materials", async (req, res) => {
+  const userId = req.auth.payload.sub;
+  const filter = req.query.filter || "all";
+
+  try {
+    let materials;
+    if (filter === "mine") {
+      materials = await StudyMaterials.find({ ownerId: userId }).sort({ updatedAt: -1 }).toArray();
+    } else if (filter === "shared") {
+      const userGroups = await Groups.find({ memberIds: userId }).toArray();
+      const groupIds = userGroups.map(g => g._id);
+      const sharedTopics = await Topics.find({ groupIds: { $elemMatch: { $in: groupIds } } }).toArray();
+      const topicIds = sharedTopics.map(t => t._id);
+      materials = await StudyMaterials.find({
+        topicId: { $in: topicIds },
+        ownerId: { $ne: userId },
+      }).sort({ updatedAt: -1 }).toArray();
+    } else {
+      const ownMaterials = await StudyMaterials.find({ ownerId: userId }).sort({ updatedAt: -1 }).toArray();
+      const userGroups = await Groups.find({ memberIds: userId }).toArray();
+      const groupIds = userGroups.map(g => g._id);
+      if (groupIds.length === 0) {
+        materials = ownMaterials;
+      } else {
+        const sharedTopics = await Topics.find({ groupIds: { $elemMatch: { $in: groupIds } } }).toArray();
+        const topicIds = sharedTopics.map(t => t._id);
+        const sharedMaterials = await StudyMaterials.find({
+          topicId: { $in: topicIds },
+          ownerId: { $ne: userId },
+        }).sort({ updatedAt: -1 }).toArray();
+        const seen = new Set(ownMaterials.map(m => m._id.toString()));
+        materials = [...ownMaterials];
+        for (const m of sharedMaterials) {
+          if (!seen.has(m._id.toString())) materials.push(m);
+        }
+      }
+    }
+
+    const result = materials.map(m => ({
+      ...m,
+      isOwner: m.ownerId === userId,
+    }));
+    res.json(result);
+  } catch (error) {
+    console.error("GET /api/materials error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/topics/:id/materials", async (req, res) => {
+  const topicId = new ObjectId(req.params.id);
+  const key = `topic:${topicId}:materials`;
+  const cached = await redis.get(key);
+  if (cached) return res.json(JSON.parse(cached));
+  const materials = await StudyMaterials
+    .find({ topicId })
+    .sort({ createdAt: -1 })
+    .toArray();
+  await redis.set(key, JSON.stringify(materials), { EX: 600 });
+  res.json(materials);
+});
+
+// auth-005 / gov-001: material access isolation
+app.get("/api/materials/:id", validateId, async (req, res) => {
+  const material = await StudyMaterials.findOne({ _id: new ObjectId(req.params.id) });
+  if (!material) return res.status(404).json({ error: "Material not found" });
+  const allowed = await canAccessMaterial(material, req.auth.payload.sub);
+  if (!allowed) return res.status(403).json({ error: "Forbidden" });
+  res.json(material);
+});
+
+// auth-005 / gov-001: note access isolation
+app.get("/api/materials/:id/note", validateId, async (req, res) => {
+  const material = await StudyMaterials.findOne({ _id: new ObjectId(req.params.id) });
+  if (!material) return res.status(404).json({ error: "Material not found" });
+  const allowed = await canAccessMaterial(material, req.auth.payload.sub);
+  if (!allowed) return res.status(403).json({ error: "Forbidden" });
+  const note = await Notes.findOne({ materialId: new ObjectId(req.params.id) });
+  res.json(note);
+});
+
+app.put("/api/materials/:id/note", validateId, async (req, res) => {
+  try {
+    const { title, content } = req.body;
+    const materialId = new ObjectId(req.params.id);
+    const existing = await StudyMaterials.findOne({ _id: materialId });
+    if (!existing) return res.status(404).json({ error: "Material not found" });
+    const allowed = await canAccessMaterial(existing, req.auth.payload.sub);
+    if (!allowed) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const material = await StudyMaterials.updateOne(
+      { _id: materialId },
+      { $set: { title, updatedAt: Date.now() } }
+    );
+    const note = await Notes.updateOne(
+      { materialId },
+      { $set: { content } }
+    );
+    if (note.matchedCount === 0) {
+      return res.status(404).json({ error: "Note not found" });
+    }
+    const studyMaterial = await StudyMaterials.findOne({ _id: materialId });
+    if (studyMaterial?.topicId) {
+      await redis.del(`topic:${studyMaterial.topicId}:materials`);
+    }
+    res.json([note, material]);
+  } catch (error) {
+    console.error("PUT /materials/:id/note ERROR:", error);
+    res.status(500).json({ error: "An internal server error occurred." });
+  }
+});
+
+app.delete("/api/materials/:id/note", validateId, async (req, res) => {
+  try {
+    const materialId = new ObjectId(req.params.id);
+    const studyMaterial = await StudyMaterials.findOne({ _id: materialId });
+    if (!studyMaterial) return res.status(404).json({ error: "Material not found" });
+    if (studyMaterial.ownerId !== req.auth.payload.sub) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    // Cascade-delete derived summaries before removing the note
+    const derivedSummaries = await StudyMaterials.find({
+      derivedFrom: { $in: [materialId, materialId.toString()] },
+      type: "summary"
+    }).toArray();
+    for (const s of derivedSummaries) {
+      await deleteMaterialCascade(s._id);
+    }
+    const note = await Notes.deleteOne({ materialId });
+    const material = await StudyMaterials.deleteOne({ _id: materialId });
+    if (studyMaterial?.topicId) {
+      await redis.del(`topic:${studyMaterial.topicId}:materials`);
+    }
+    res.json([note, material]);
+  } catch (error) {
+    console.error("DEL /materials/:id/note ERROR:", error);
+    res.status(500).json({ error: "An internal server error occurred." });
+  }
+});
+
+// ===================== Flashcard Sets & Cards =====================
+
+app.post("/api/flashcard-sets", async (req, res) => {
+  const { title, topicId, cards } = req.body;
+  if (!title || !topicId) return res.status(400).json({ error: "title and topicId required" });
+  const userId = req.auth.payload.sub;
+
+  const material = {
+    type: "flashcardSet",
+    title,
+    ownerId: userId,
+    topicId: new ObjectId(topicId),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  const { insertedId: materialId } = await StudyMaterials.insertOne(material);
+
+  const flashcardSet = {
+    materialId,
+    createdAt: Date.now(),
+  };
+  const { insertedId: setId } = await FlashcardSets.insertOne(flashcardSet);
+
+  if (cards && Array.isArray(cards) && cards.length > 0) {
+    const cardDocs = cards.map(c => ({
+      setId,
+      question: c.question,
+      answer: c.answer,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }));
+    await Flashcards.insertMany(cardDocs);
+  }
+
+  await redis.del(`topic:${topicId}:materials`);
+  res.json({ materialId, setId });
+});
+
+app.get("/api/materials/:id/flashcard-set", validateId, async (req, res) => {
+  const set = await FlashcardSets.findOne({ materialId: new ObjectId(req.params.id) });
+  res.json(set);
+});
+
+app.put("/api/materials/:id/flashcard-set", validateId, async (req, res) => {
+  const flashcardsetId = new ObjectId(req.params.id);
+  const { materialId } = req.body;
+  if (!materialId) return res.status(400).json({ error: "Missing materialId" });
+  const flashcardset = await FlashcardSets.updateOne(
+    { _id: flashcardsetId },
+    { $set: { materialId } }
+  );
+  res.json(flashcardset);
+});
+
+app.get("/api/flashcard-sets/:id/cards", async (req, res) => {
+  const setId = req.params.id;
+  const cacheKey = `set:${setId}:cards`;
+  try {
+    const cachedCards = await redis.get(cacheKey);
+    if (cachedCards) return res.json(JSON.parse(cachedCards));
+    const cards = await Flashcards.find({ setId: new ObjectId(setId) }).toArray();
+    await redis.set(cacheKey, JSON.stringify(cards), { EX: 3600 });
+    res.json(cards);
+  } catch (error) {
+    console.error("GET cards error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.put("/api/materials/:id/cards", validateId, async (req, res) => {
+  const { setId, question, answer } = req.body;
+  const flashcardId = req.params.id;
+  if (!setId && !question && !answer) return res.status(400).json({ error: "Need to include one of: setId, question, or answer" });
+  const updateDoc = { $set: { updatedAt: Date.now() } };
+  if (setId) updateDoc.$set.setId = setId;
+  if (question) updateDoc.$set.question = question;
+  if (answer) updateDoc.$set.answer = answer;
+  const result = await Flashcards.updateOne({ _id: new ObjectId(flashcardId) }, updateDoc);
+  if (result.matchedCount === 0) {
+    return res.status(404).json({ error: "Flashcard not found" });
+  }
+  const flashcard = await Flashcards.findOne({ _id: new ObjectId(flashcardId) });
+  if (flashcard?.setId) {
+    await redis.del(`set:${flashcard.setId.toString()}:cards`);
+    const flashcardSet = await FlashcardSets.findOne({ _id: new ObjectId(flashcard.setId) });
+    if (flashcardSet?.topicId) {
+      await redis.del(`topic:${flashcardSet.topicId}:materials`);
+    }
+  }
+  res.json(result);
+});
+
+app.post("/api/flashcard-sets/:id/cards", async (req, res) => {
+  const setId = req.params.id;
+  const { question, answer } = req.body;
+  if (!question || !answer) return res.status(400).json({ error: "question and answer required" });
+  const set = await FlashcardSets.findOne({ _id: new ObjectId(setId) });
+  if (!set) return res.status(404).json({ error: "Flashcard set not found" });
+  const card = {
+    setId: new ObjectId(setId),
+    question,
+    answer,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  const { insertedId } = await Flashcards.insertOne(card);
+  await redis.del(`set:${setId}:cards`);
+  res.json({ _id: insertedId, ...card });
+});
+
+app.delete("/api/flashcards/:id", validateId, async (req, res) => {
+  const cardId = req.params.id;
+  const card = await Flashcards.findOne({ _id: new ObjectId(cardId) });
+  if (!card) return res.status(404).json({ error: "Flashcard not found" });
+  await Flashcards.deleteOne({ _id: new ObjectId(cardId) });
+  if (card.setId) {
+    await redis.del(`set:${card.setId.toString()}:cards`);
+  }
+  res.json({ ok: true });
+});
