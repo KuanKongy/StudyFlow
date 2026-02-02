@@ -649,3 +649,393 @@ app.delete("/api/flashcards/:id", validateId, async (req, res) => {
   }
   res.json({ ok: true });
 });
+
+// ===================== Groups =====================
+
+app.post("/api/groups", async (req, res) => {
+  const { name, joinCode, description } = req.body;
+  if (!name) return res.status(400).json({ error: "name required" });
+  const group = {
+    name,
+    description: description || "",
+    joinCode: joinCode || null,
+    ownerId: req.auth.payload.sub,
+    memberIds: [req.auth.payload.sub],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  const { insertedId } = await Groups.insertOne(group);
+  res.json({ groupId: insertedId, ...group, _id: insertedId });
+});
+
+app.get("/api/groups", async (req, res) => {
+  const groups = await Groups
+    .find({ memberIds: req.auth.payload.sub })
+    .toArray();
+  res.json(groups);
+});
+
+// Browse joinable groups (for JoinGroup page)
+app.get("/api/groups/available", async (req, res) => {
+  const groups = await Groups
+    .find({
+      memberIds: { $ne: req.auth.payload.sub },
+      $or: [{ joinCode: null }, { joinCode: { $exists: false } }]
+    })
+    .toArray();
+  res.json(groups);
+});
+
+// Join group by code
+app.post("/api/groups/join", async (req, res) => {
+  const { joinCode } = req.body;
+  if (!joinCode) return res.status(400).json({ error: "joinCode required" });
+  const group = await Groups.findOne({ joinCode });
+  if (!group) return res.status(404).json({ error: "Invalid join code" });
+  if (group.memberIds.includes(req.auth.payload.sub)) {
+    return res.json({ ok: true, message: "Already a member", group });
+  }
+  await Groups.updateOne(
+    { _id: group._id },
+    { $addToSet: { memberIds: req.auth.payload.sub } }
+  );
+  await GroupAuditLog.insertOne({
+    groupId: group._id,
+    actorId: req.auth.payload.sub,
+    targetId: req.auth.payload.sub,
+    action: "join",
+    timestamp: Date.now(),
+  });
+  const updated = await Groups.findOne({ _id: group._id });
+  res.json({ ok: true, group: updated });
+});
+
+app.put("/api/groups/:id", validateId, async (req, res) => {
+  const { name, description, joinCode, ownerId, memberIds, avatar } = req.body;
+  const groupId = req.params.id;
+  const updateDoc = { $set: { updatedAt: Date.now() } };
+  if (name) updateDoc.$set.name = name;
+  if (description !== undefined) updateDoc.$set.description = description;
+  if (avatar !== undefined) updateDoc.$set.avatar = avatar;
+  if (joinCode !== undefined) updateDoc.$set.joinCode = joinCode || null;
+  if (ownerId) updateDoc.$set.ownerId = ownerId;
+  if (memberIds) updateDoc.$set.memberIds = memberIds;
+  if (Object.keys(updateDoc.$set).length <= 1) {
+    return res.status(400).json({ error: "No update fields provided" });
+  }
+  const result = await Groups.updateOne({ _id: new ObjectId(groupId) }, updateDoc);
+  if (result.matchedCount === 0) {
+    return res.status(404).json({ error: "Group not found" });
+  }
+  const updated = await Groups.findOne({ _id: new ObjectId(groupId) });
+  res.json(updated);
+});
+
+// auth-002: only owner can delete group
+app.delete("/api/groups/:id", validateId, async (req, res) => {
+  const groupId = req.params.id;
+  const groupOid = new ObjectId(groupId);
+  const group = await Groups.findOne({ _id: groupOid });
+  if (!group) return res.status(404).json({ error: "Group not found" });
+  if (group.ownerId !== req.auth.payload.sub) {
+    return res.status(403).json({ error: "Forbidden — only the group owner can delete this group" });
+  }
+  await Topics.updateMany({ groupIds: groupOid }, { $pull: { groupIds: groupOid } });
+  await Groups.deleteOne({ _id: groupOid });
+  res.json({ message: "Group deleted successfully", groupId });
+});
+
+// Add member + gov-005 audit log
+app.post("/api/groups/:id/members", validateId, async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: "userId required" });
+  await Groups.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $addToSet: { memberIds: userId } }
+  );
+  await GroupAuditLog.insertOne({
+    groupId: new ObjectId(req.params.id),
+    actorId: req.auth.payload.sub,
+    targetId: userId,
+    action: "add",
+    timestamp: Date.now(),
+  });
+  res.json({ ok: true });
+});
+
+async function handleMemberRemovalCascade(groupId, userId) {
+  const groupOid = new ObjectId(groupId);
+
+  // Topics owned by the removed user: detach from this group
+  await Topics.updateMany(
+    { ownerId: userId, groupIds: groupOid },
+    { $pull: { groupIds: groupOid } }
+  );
+
+  // In those (now-detached) topics, delete materials NOT owned by the removed user
+  const detachedTopics = await Topics.find({ ownerId: userId }).toArray();
+  for (const t of detachedTopics) {
+    const foreignMats = await StudyMaterials.find({
+      topicId: t._id,
+      ownerId: { $ne: userId }
+    }).toArray();
+    for (const m of foreignMats) {
+      await deleteMaterialCascade(m._id);
+    }
+  }
+
+  // Topics NOT owned by the removed user that remain in this group: delete the removed user's materials
+  const groupTopics = await Topics.find({
+    groupIds: groupOid,
+    ownerId: { $ne: userId }
+  }).toArray();
+  for (const t of groupTopics) {
+    const userMats = await StudyMaterials.find({
+      topicId: t._id,
+      ownerId: userId
+    }).toArray();
+    for (const m of userMats) {
+      await deleteMaterialCascade(m._id);
+    }
+  }
+}
+
+// auth-003: only owner can remove members (or member can remove self) + gov-005 audit log
+app.delete("/api/groups/:id/members", validateId, async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: "userId required" });
+  const group = await Groups.findOne({ _id: new ObjectId(req.params.id) });
+  if (!group) return res.status(404).json({ error: "Group not found" });
+  const isSelfRemoval = userId === req.auth.payload.sub;
+  if (!isSelfRemoval && group.ownerId !== req.auth.payload.sub) {
+    return res.status(403).json({ error: "Forbidden — only the group owner can remove members" });
+  }
+  if (userId === group.ownerId) {
+    return res.status(400).json({ error: "The group owner cannot be removed" });
+  }
+  await Groups.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $pull: { memberIds: userId } }
+  );
+  await handleMemberRemovalCascade(req.params.id, userId);
+  await GroupAuditLog.insertOne({
+    groupId: new ObjectId(req.params.id),
+    actorId: req.auth.payload.sub,
+    targetId: userId,
+    action: isSelfRemoval ? "leave" : "remove",
+    timestamp: Date.now(),
+  });
+  res.json({ ok: true });
+});
+
+// Leave group (member removes self)
+app.post("/api/groups/:id/leave", validateId, async (req, res) => {
+  const userId = req.auth.payload.sub;
+  const group = await Groups.findOne({ _id: new ObjectId(req.params.id) });
+  if (!group) return res.status(404).json({ error: "Group not found" });
+  if (group.ownerId === userId) {
+    return res.status(400).json({ error: "The group owner cannot leave. Delete the group or transfer ownership." });
+  }
+  if (!group.memberIds.includes(userId)) {
+    return res.status(400).json({ error: "You are not a member of this group" });
+  }
+  await Groups.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $pull: { memberIds: userId } }
+  );
+  await handleMemberRemovalCascade(req.params.id, userId);
+  await GroupAuditLog.insertOne({
+    groupId: new ObjectId(req.params.id),
+    actorId: userId,
+    targetId: userId,
+    action: "leave",
+    timestamp: Date.now(),
+  });
+  res.json({ ok: true });
+});
+
+// ===================== Topics (groupIds array) =====================
+
+app.post("/api/topics", async (req, res) => {
+  const { title, groupId, groupIds, description } = req.body;
+  if (!title) return res.status(400).json({ error: "title required" });
+
+  let resolvedGroupIds = [];
+  if (groupIds && Array.isArray(groupIds)) {
+    resolvedGroupIds = groupIds.map(id => new ObjectId(id));
+  } else if (groupId) {
+    resolvedGroupIds = [new ObjectId(groupId)];
+  }
+
+  const topic = {
+    title,
+    ownerId: req.auth.payload.sub,
+    description: description || "",
+    groupIds: resolvedGroupIds,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  const { insertedId } = await Topics.insertOne(topic);
+  res.json({ topicId: insertedId, ...topic, _id: insertedId });
+});
+
+app.get("/api/topics", async (req, res) => {
+  const groups = await Groups.find({ memberIds: req.auth.payload.sub }).toArray();
+  const userGroupIds = groups.map(g => g._id);
+
+  const topics = await Topics.find({
+    $or: [
+      { ownerId: req.auth.payload.sub, groupIds: { $size: 0 } },
+      { ownerId: req.auth.payload.sub, groupIds: { $exists: false } },
+      { groupIds: { $elemMatch: { $in: userGroupIds } } }
+    ]
+  }).toArray();
+  res.json(topics);
+});
+
+app.put("/api/topics/:id", validateId, async (req, res) => {
+  const { title, description, ownerId, groupId, groupIds } = req.body;
+  const topicId = req.params.id;
+  const updateDoc = { $set: { updatedAt: Date.now() } };
+  if (title) updateDoc.$set.title = title;
+  if (description !== undefined) updateDoc.$set.description = description;
+  if (ownerId) updateDoc.$set.ownerId = ownerId;
+  if (groupIds && Array.isArray(groupIds)) {
+    updateDoc.$set.groupIds = groupIds.map(id => new ObjectId(id));
+  } else if (groupId) {
+    updateDoc.$set.groupIds = [new ObjectId(groupId)];
+  }
+  const result = await Topics.updateOne({ _id: new ObjectId(topicId) }, updateDoc);
+  if (result.matchedCount === 0) {
+    return res.status(404).json({ error: "Topic not found" });
+  }
+  const updated = await Topics.findOne({ _id: new ObjectId(topicId) });
+  res.json(updated);
+});
+
+app.delete("/api/topics/:id", validateId, async (req, res) => {
+  const topicId = req.params.id;
+  const topicOid = new ObjectId(topicId);
+  const topic = await Topics.findOne({ _id: topicOid });
+  if (!topic) return res.status(404).json({ error: "Topic not found" });
+  if (topic.ownerId !== req.auth.payload.sub) {
+    return res.status(403).json({ error: "Forbidden — only the topic owner can delete this topic" });
+  }
+  const materials = await StudyMaterials.find({ topicId: topicOid }).toArray();
+  const materialIds = materials.map(m => m._id);
+  if (materialIds.length > 0) {
+    const sets = await FlashcardSets.find({ materialId: { $in: materialIds } }).toArray();
+    const setIds = sets.map(s => s._id);
+    if (setIds.length > 0) await Flashcards.deleteMany({ setId: { $in: setIds } });
+    await FlashcardSets.deleteMany({ materialId: { $in: materialIds } });
+    await Notes.deleteMany({ materialId: { $in: materialIds } });
+    await StudyMaterials.deleteMany({ topicId: topicOid });
+    for (const mid of materialIds) {
+      await redis.del(`topic:${topicId}:materials`);
+    }
+  }
+  await Topics.deleteOne({ _id: topicOid });
+  await redis.del(`topic:${topicId}:materials`);
+  res.json({ message: "Topic and all materials deleted successfully", topicId });
+});
+
+app.post("/api/topics/batch-delete", async (req, res) => {
+  const { topicIds } = req.body;
+  if (!topicIds || !Array.isArray(topicIds) || topicIds.length === 0) {
+    return res.status(400).json({ error: "topicIds array required" });
+  }
+  const userId = req.auth.payload.sub;
+  let deleted = 0;
+  for (const id of topicIds) {
+    try {
+      const topicOid = new ObjectId(id);
+      const topic = await Topics.findOne({ _id: topicOid });
+      if (!topic || topic.ownerId !== userId) continue;
+      const materials = await StudyMaterials.find({ topicId: topicOid }).toArray();
+      const materialIds = materials.map(m => m._id);
+      if (materialIds.length > 0) {
+        const sets = await FlashcardSets.find({ materialId: { $in: materialIds } }).toArray();
+        const setIds = sets.map(s => s._id);
+        if (setIds.length > 0) await Flashcards.deleteMany({ setId: { $in: setIds } });
+        await FlashcardSets.deleteMany({ materialId: { $in: materialIds } });
+        await Notes.deleteMany({ materialId: { $in: materialIds } });
+        await StudyMaterials.deleteMany({ topicId: topicOid });
+        await redis.del(`topic:${id}:materials`);
+      }
+      await Topics.deleteOne({ _id: topicOid });
+      await redis.del(`topic:${id}:materials`);
+      deleted++;
+    } catch (e) {
+      console.error(`batch-delete topic ${id} error:`, e);
+    }
+  }
+  res.json({ deleted });
+});
+
+// ===================== Generic Material Deletion =====================
+
+async function deleteMaterialCascade(materialId) {
+  const material = await StudyMaterials.findOne({ _id: materialId });
+  if (!material) return false;
+  if (material.type === "note") {
+    await Notes.deleteMany({ materialId });
+    // Cascade-delete summaries derived from this note
+    const derivedSummaries = await StudyMaterials.find({
+      derivedFrom: { $in: [materialId, materialId.toString()] },
+      type: "summary"
+    }).toArray();
+    for (const s of derivedSummaries) {
+      await deleteMaterialCascade(s._id);
+    }
+  } else if (material.type === "flashcardSet") {
+    const sets = await FlashcardSets.find({ materialId }).toArray();
+    const setIds = sets.map(s => s._id);
+    if (setIds.length > 0) await Flashcards.deleteMany({ setId: { $in: setIds } });
+    await FlashcardSets.deleteMany({ materialId });
+  } else if (material.type === "summary") {
+    await Notes.deleteMany({ materialId });
+  }
+  await StudyMaterials.deleteOne({ _id: materialId });
+  if (material.topicId) {
+    await redis.del(`topic:${material.topicId}:materials`);
+  }
+  return true;
+}
+
+app.delete("/api/materials/:id", validateId, async (req, res) => {
+  try {
+    const materialId = new ObjectId(req.params.id);
+    const material = await StudyMaterials.findOne({ _id: materialId });
+    if (!material) return res.status(404).json({ error: "Material not found" });
+    if (material.ownerId !== req.auth.payload.sub) {
+      return res.status(403).json({ error: "Forbidden — only the owner can delete this material" });
+    }
+    await deleteMaterialCascade(materialId);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("DELETE /api/materials/:id ERROR:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/materials/batch-delete", async (req, res) => {
+  const { materialIds } = req.body;
+  if (!materialIds || !Array.isArray(materialIds) || materialIds.length === 0) {
+    return res.status(400).json({ error: "materialIds array required" });
+  }
+  const userId = req.auth.payload.sub;
+  let deleted = 0;
+  let skipped = 0;
+  for (const id of materialIds) {
+    if (!ObjectId.isValid(id)) { skipped++; continue; }
+    const material = await StudyMaterials.findOne({ _id: new ObjectId(id) });
+    if (!material || material.ownerId !== userId) { skipped++; continue; }
+    await deleteMaterialCascade(new ObjectId(id));
+    deleted++;
+  }
+  res.json({ ok: true, deleted, skipped });
+});
+
+app.listen(4000, () => {
+  console.log("API listening on 4000");
+});
