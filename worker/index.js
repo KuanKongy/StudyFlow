@@ -32,6 +32,49 @@ await Flashcards.createIndex({ setId: 1 });
 
 console.log("Worker connected to Mongo + Redis");
 
+const MAX_RETRIES = 3;
+let consecutive429s = 0;
+
+async function callOpenAI(messages, temperature, job) {
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages,
+      temperature,
+    });
+    consecutive429s = 0;
+    return response;
+  } catch (err) {
+    if (err.status === 429) {
+      consecutive429s++;
+      const retries = (job.retries || 0) + 1;
+      await Jobs.updateOne({ _id: job._id }, { $set: { retries } });
+
+      // ai-002: trip circuit breaker after 3 consecutive 429s
+      if (consecutive429s >= 3) {
+        await redis.set("circuit-breaker:openai", "1", { EX: 60 });
+        console.warn("Circuit breaker TRIPPED for OpenAI (60s cooldown)");
+      }
+
+      // ai-001: exponential backoff + re-queue
+      if (retries < MAX_RETRIES) {
+        await Jobs.updateOne({ _id: job._id }, { $set: { status: "retrying" } });
+        const delay = Math.pow(2, retries) * 1000;
+        console.log(`[ai-001] Re-queuing job ${job._id} after ${delay}ms (retry ${retries}/${MAX_RETRIES})`);
+        await new Promise(r => setTimeout(r, delay));
+        await redis.lPush("queue:jobs", JSON.stringify({ jobId: job._id.toString() }));
+        return null;
+      }
+      await Jobs.updateOne(
+        { _id: job._id },
+        { $set: { status: "failed", error: `OpenAI rate limited after ${MAX_RETRIES} retries` } }
+      );
+      return null;
+    }
+    throw err;
+  }
+}
+
 const handlers = {
   GENERATE_FLASHCARDS: handleGenerateFlashcards,
   GENERATE_SUMMARY: handleGenerateSummary,
@@ -42,17 +85,32 @@ while (true) {
   const job = await redis.brPop("queue:jobs", 0);
   if (!job) continue;
 
-  const { jobId } = JSON.parse(job.element); //   const payload = JSON.parse(job.element);
+  const { jobId } = JSON.parse(job.element);
   console.log("Worker got job:", jobId);
 
   const jobObjectId = new ObjectId(jobId);
-
   const jobDoc = await Jobs.findOne({ _id: jobObjectId });
   if (!jobDoc) continue;
 
+  // data-005: skip jobs for deleted users
+  const userExists = await Users.findOne({ authId: jobDoc.ownerId });
+  if (!userExists) {
+    console.log(`Skipping job ${jobId} — user ${jobDoc.ownerId} deleted`);
+    await Jobs.updateOne(
+      { _id: jobDoc._id },
+      { $set: { status: "failed", error: "User deleted" } }
+    );
+    continue;
+  }
+
   const handler = handlers[jobDoc.type];
   if (!handler) {
-    throw new Error(`Unknown job type: ${jobDoc.type}`);
+    console.error(`Unknown job type: ${jobDoc.type}`);
+    await Jobs.updateOne(
+      { _id: jobDoc._id },
+      { $set: { status: "failed", error: `Unknown job type: ${jobDoc.type}` } }
+    );
+    continue;
   }
 
   try {
@@ -68,7 +126,6 @@ while (true) {
   console.log("Job completed:", jobId);
 }
 
-//Flashcard generation
 async function handleGenerateFlashcards(job) {
   await Jobs.updateOne(
     { _id: job._id },
@@ -92,7 +149,6 @@ async function handleGenerateFlashcards(job) {
     return;
   }
 
-  // AI call
   const prompt = `
   You are an expert study assistant.
   
@@ -115,33 +171,30 @@ async function handleGenerateFlashcards(job) {
   Notes:
   ${note.content}
   `;
-  
+
+  const response = await callOpenAI(
+    [
+      { role: "system", content: "You generate flashcards for studying." },
+      { role: "user", content: prompt },
+    ],
+    0.3,
+    job
+  );
+
+  if (!response) return;
+
   let aiResult;
-  
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: "You generate flashcards for studying." },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.3,
-    });
-  
     aiResult = JSON.parse(response.choices[0].message.content);
-  } catch (err) {
+  } catch {
     await Jobs.updateOne(
       { _id: job._id },
-      { $set: { status: "failed", error: "AI generation failed" } }
+      { $set: { status: "failed", error: "Failed to parse AI output" } }
     );
-    throw err;
+    return;
   }
 
-  if (
-    !aiResult ||
-    !Array.isArray(aiResult.cards) ||
-    aiResult.cards.length === 0
-  ) {
+  if (!aiResult || !Array.isArray(aiResult.cards) || aiResult.cards.length === 0) {
     await Jobs.updateOne(
       { _id: job._id },
       { $set: { status: "failed", error: "Invalid AI output" } }
@@ -149,25 +202,18 @@ async function handleGenerateFlashcards(job) {
     return;
   }
 
-  //Create StudyMaterial
-  const inputMaterial = await StudyMaterials.findOne({
-    _id: job.inputMaterialId,
+  const inputMaterial = await StudyMaterials.findOne({ _id: job.inputMaterialId });
+  const { insertedId: materialId } = await StudyMaterials.insertOne({
+    type: "flashcardSet",
+    title: aiResult.setTitle,
+    ownerId: job.ownerId,
+    topicId: inputMaterial.topicId ?? null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
   });
-  const { insertedId: materialId } =
-    await StudyMaterials.insertOne({
-      type: "flashcardSet",
-      title: aiResult.setTitle,
-      ownerId: job.ownerId,
-      topicId: inputMaterial.topicId ?? null,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
 
-  //Create FlashcardSet
-  const { insertedId: setId } =
-    await FlashcardSets.insertOne({ materialId });
+  const { insertedId: setId } = await FlashcardSets.insertOne({ materialId });
 
-  //Insert flashcards
   await Flashcards.insertMany(
     aiResult.cards.map(card => ({
       setId,
@@ -177,112 +223,13 @@ async function handleGenerateFlashcards(job) {
     }))
   );
 
-  //Update job
+  if (inputMaterial?.topicId) {
+    await redis.del(`topic:${inputMaterial.topicId.toString()}:materials`);
+  }
+  await redis.set(`job:${job._id.toString()}`, "done", { EX: 30 });
+
   await Jobs.updateOne(
     { _id: job._id },
-    {
-      $set: {
-        status: "done",
-        resultMaterialId: materialId,
-        finishedAt: Date.now(),
-      },
-    }
+    { $set: { status: "done", resultMaterialId: materialId, finishedAt: Date.now() } }
   );
-}
-
-//Generate summary
-async function handleGenerateSummary(job) {
-  try {
-    await Jobs.updateOne(
-      { _id: job._id },
-      { $set: { status: "processing", startedAt: Date.now() } }
-    );
-
-    const note = await Notes.findOne({ materialId: job.inputMaterialId });
-    if (!note) {
-      await Jobs.updateOne(
-        { _id: job._id },
-        { $set: { status: "failed", error: "Input note not found" } }
-      );
-      return;
-    }
-
-  if (note.content.length > 50_000) {
-    await Jobs.updateOne(
-      { _id: job._id },
-      { $set: { status: "failed", error: "Note too large to summarize" } }
-    );
-    return;
-  }
-
-    // AI call
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // cheap + good for summarization
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are an assistant that summarizes study notes. " +
-            "You MUST only use information present in the input. " +
-            "Do not add new facts. Preserve important terminology. Output valid Markdown.",
-        },
-        {
-          role: "user",
-          content: `
-    Summarize the following study note into a concise, well-structured summary.
-    Use headings and bullet points where appropriate.
-    
-    <NOTE>
-    ${note.content}
-    </NOTE>
-          `,
-        },
-      ],
-      temperature: 0.2, // low = factual, stable
-    });
-    
-    const summaryText = completion.choices[0].message.content;
-
-    //Insert summary (appears as note)
-    const inputMaterial = await StudyMaterials.findOne({
-      _id: job.inputMaterialId,
-    });
-    const { insertedId: materialId } =
-      await StudyMaterials.insertOne({
-        type: "summary",
-        title: `Summary: ${inputMaterial.title}`,
-        ownerId: job.ownerId,
-        topicId: inputMaterial.topicId ?? null,
-        derivedFrom: inputMaterial._id,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      });
-    await Notes.insertOne({
-      materialId,
-      content: summaryText,
-    });
-
-    if (inputMaterial && inputMaterial.topicId) {
-      await redis.del(`topic:${inputMaterial.topicId.toString()}:materials`);
-    }
-    await redis.set(`job:${job._id.toString()}`, "done", { EX: 30 });
-
-    //Update job
-    await Jobs.updateOne(
-      { _id: job._id },
-      {
-        $set: {
-          status: "done",
-          resultMaterialId: materialId,
-          finishedAt: Date.now(),
-        },
-      }
-    );
-  } catch (err) {
-    console.error("Summary Job Error:", err);
-    await Jobs.updateOne(
-      { _id: job._id },
-      { $set: { status: "failed", error: err.message } }
-    );
-  }
 }
