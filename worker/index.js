@@ -233,3 +233,86 @@ async function handleGenerateFlashcards(job) {
     { $set: { status: "done", resultMaterialId: materialId, finishedAt: Date.now() } }
   );
 }
+
+async function handleGenerateSummary(job) {
+  try {
+    await Jobs.updateOne(
+      { _id: job._id },
+      { $set: { status: "processing", startedAt: Date.now() } }
+    );
+
+    const note = await Notes.findOne({ materialId: job.inputMaterialId });
+    if (!note) {
+      await Jobs.updateOne(
+        { _id: job._id },
+        { $set: { status: "failed", error: "Input note not found" } }
+      );
+      return;
+    }
+
+    if (note.content.length > 50_000) {
+      await Jobs.updateOne(
+        { _id: job._id },
+        { $set: { status: "failed", error: "Note too large to summarize" } }
+      );
+      return;
+    }
+
+    const response = await callOpenAI(
+      [
+        {
+          role: "system",
+          content:
+            "You are an assistant that summarizes study notes. " +
+            "You MUST only use information present in the input. " +
+            "Do not add new facts. Preserve important terminology. Output valid Markdown.",
+        },
+        {
+          role: "user",
+          content: `
+    Summarize the following study note into a concise, well-structured summary.
+    Use headings and bullet points where appropriate.
+    
+    <NOTE>
+    ${note.content}
+    </NOTE>
+          `,
+        },
+      ],
+      0.2,
+      job
+    );
+
+    if (!response) return;
+
+    const summaryText = response.choices[0].message.content;
+
+    const inputMaterial = await StudyMaterials.findOne({ _id: job.inputMaterialId });
+    const { insertedId: materialId } = await StudyMaterials.insertOne({
+      type: "summary",
+      title: `Summary: ${inputMaterial.title}`,
+      ownerId: job.ownerId,
+      topicId: inputMaterial.topicId ?? null,
+      derivedFrom: inputMaterial._id,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await Notes.insertOne({ materialId, content: summaryText });
+
+    if (inputMaterial?.topicId) {
+      await redis.del(`topic:${inputMaterial.topicId.toString()}:materials`);
+    }
+    await redis.set(`job:${job._id.toString()}`, "done", { EX: 30 });
+
+    await Jobs.updateOne(
+      { _id: job._id },
+      { $set: { status: "done", resultMaterialId: materialId, finishedAt: Date.now() } }
+    );
+  } catch (err) {
+    console.error("Summary Job Error:", err);
+    await Jobs.updateOne(
+      { _id: job._id },
+      { $set: { status: "failed", error: err.message } }
+    );
+  }
+}
