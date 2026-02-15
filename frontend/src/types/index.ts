@@ -1,42 +1,39 @@
 export interface User {
-  id: string;
+  id: string;         // authId (Auth0 sub) — used for ownerId/memberIds comparison
+  mongoId: string;    // MongoDB _id
   authId: string;
   email: string;
   username: string;
-  name?: string; // Display name
+  name?: string;
   createdAt: string;
   avatar?: string;
+  onboardedAt?: string | null;
 }
 
 export interface Group {
   id: string;
   name: string;
   description?: string;
-  joinCode?: string; // If no code, then public, otherwise private
+  avatar?: string;
+  joinCode?: string | null;
   ownerId: string;
   memberIds: string[];
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface Topic {
   id: string;
   title: string;
-  name?: string; // Alias for title
   description?: string;
   privacy: 'private' | 'group';
-  groupIds?: string[]; // Topic can be in multiple groups
+  groupIds: string[];
   ownerId: string;
   createdAt: string;
   updatedAt?: string;
 }
 
 export type MaterialType = 'note' | 'flashcard_set' | 'summary';
-
-export interface Summary {
-  id: string;
-  materialId: string;
-  content: string;
-}
 
 export interface Material {
   id: string;
@@ -45,10 +42,10 @@ export interface Material {
   description?: string;
   ownerId: string;
   topicId?: string;
-  derivedFrom?: string; // ID of the input material (for AI-generated content)
-  parentMaterialId?: string; // Alias for derivedFrom
+  derivedFrom?: string;
   createdAt: string;
   updatedAt: string;
+  isOwner?: boolean;
 }
 
 export interface Note {
@@ -70,7 +67,7 @@ export interface Flashcard {
   createdAt: string;
 }
 
-export type JobStatus = 'pending' | 'processing' | 'done' | 'failed';
+export type JobStatus = 'queued' | 'processing' | 'done' | 'failed' | 'retrying';
 export type JobType = 'GENERATE_SUMMARY' | 'GENERATE_FLASHCARDS';
 
 export interface Job {
