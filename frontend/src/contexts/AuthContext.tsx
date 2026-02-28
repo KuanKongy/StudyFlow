@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, ReactNode, useCallback, useEffect, useState, useRef } from 'react';
+import { useAuth0 } from '@auth0/auth0-react';
 import { User } from '@/types';
+import { fetchMe, TokenGetter } from '@/lib/api';
 
 interface AuthContextType {
   user: User | null;
@@ -7,52 +9,89 @@ interface AuthContextType {
   isLoading: boolean;
   login: () => void;
   logout: () => void;
+  getToken: TokenGetter;
+  refreshUser: () => Promise<void>;
+  error: string | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Mock user for development
-const mockUser: User = {
-  id: 'user-1',
-  authId: 'auth0|123',
-  email: 'johndoe@studyflow.com',
-  username: 'johndoe',
-  name: 'John Doe',
-  createdAt: '2024-01-01T10:00:00Z',
-  avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=john',
-};
-
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const {
+    isAuthenticated: auth0IsAuth,
+    isLoading: auth0Loading,
+    loginWithRedirect,
+    logout: auth0Logout,
+    getAccessTokenSilently,
+    error: auth0Error,
+  } = useAuth0();
+
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const fetchAttempted = useRef(false);
+
+  const getToken: TokenGetter = useCallback(async () => {
+    return getAccessTokenSilently();
+  }, [getAccessTokenSilently]);
+
+  const login = useCallback(() => {
+    loginWithRedirect();
+  }, [loginWithRedirect]);
+
+  const logout = useCallback(() => {
+    setUser(null);
+    setProfileError(null);
+    fetchAttempted.current = false;
+    auth0Logout({ logoutParams: { returnTo: window.location.origin } });
+  }, [auth0Logout]);
+
+  const refreshUser = useCallback(async () => {
+    try {
+      const u = await fetchMe(getToken);
+      setUser(u);
+    } catch (err) {
+      console.error('Failed to refresh user profile:', err);
+    }
+  }, [getToken]);
 
   useEffect(() => {
-    // Check for stored auth state
-    const storedAuth = localStorage.getItem('studyflow_auth');
-    if (storedAuth) {
-      setUser(mockUser);
-    }
-    setIsLoading(false);
-  }, []);
+    if (auth0Loading || !auth0IsAuth || fetchAttempted.current) return;
+    fetchAttempted.current = true;
 
-  const login = () => {
-    localStorage.setItem('studyflow_auth', 'true');
-    setUser(mockUser);
-  };
+    let cancelled = false;
+    setProfileLoading(true);
+    setProfileError(null);
 
-  const logout = () => {
-    localStorage.removeItem('studyflow_auth');
-    setUser(null);
-  };
+    fetchMe(getToken)
+      .then((u) => {
+        if (!cancelled) setUser(u);
+      })
+      .catch((err) => {
+        console.error('Failed to fetch user profile:', err);
+        if (!cancelled) setProfileError(err?.message ?? String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setProfileLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [auth0IsAuth, auth0Loading, getToken]);
+
+  const errorMsg = auth0Error?.message ?? profileError ?? null;
+  const stillLoading = auth0Loading || profileLoading || (auth0IsAuth && !user && !errorMsg);
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        isAuthenticated: !!user,
-        isLoading,
+        isAuthenticated: auth0IsAuth && !!user,
+        isLoading: stillLoading,
         login,
         logout,
+        getToken,
+        refreshUser,
+        error: errorMsg,
       }}
     >
       {children}
