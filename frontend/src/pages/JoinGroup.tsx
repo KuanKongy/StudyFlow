@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowLeft, Users, Lock, Globe, UserPlus } from 'lucide-react';
+import { ArrowLeft, Globe, Lock, UserPlus } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,61 +7,67 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { useStudy } from '@/contexts/StudyContext';
+import { useAvailableGroups, useJoinGroup, useAddMember, useUsers } from '@/hooks/useApi';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { EmptyState } from '@/components/EmptyState';
 
 export default function JoinGroup() {
   const navigate = useNavigate();
-  const { groups, joinGroup, getUserById } = useStudy();
   const { user } = useAuth();
+  const { data: publicGroups = [], isLoading } = useAvailableGroups();
+  const joinGroupMutation = useJoinGroup();
+  const addMemberMutation = useAddMember();
+
   const [joinCode, setJoinCode] = useState('');
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
 
-  // Groups the user is not a member of
-  const availableGroups = groups.filter((g) => !g.memberIds.includes(user?.id || ''));
-  const publicGroups = availableGroups.filter((g) => !g.joinCode);
-  const privateGroups = availableGroups.filter((g) => g.joinCode);
+  const memberIds = publicGroups.flatMap((g) => [g.ownerId, ...g.memberIds]);
+  const allUserIds = [...new Set(memberIds)];
+  const { data: users = [] } = useUsers(allUserIds);
 
-  const handleJoinWithCode = () => {
+  const getUserById = (authId: string) =>
+    users.find((u) => u.id === authId || u.authId === authId);
+
+  const handleJoinWithCode = async () => {
     if (!joinCode.trim()) {
       toast.error('Please enter a join code');
       return;
     }
 
-    // Find group with this join code
-    const group = groups.find((g) => g.joinCode === joinCode.trim());
-    if (!group) {
-      toast.error('Invalid join code');
-      return;
-    }
-
-    if (group.memberIds.includes(user?.id || '')) {
-      toast.info('You are already a member of this group');
-      navigate(`/app/groups/${group.id}`);
-      return;
-    }
-
-    const success = joinGroup(group.id, joinCode.trim());
-    if (success) {
+    try {
+      const group = await joinGroupMutation.mutateAsync(joinCode.trim());
       toast.success(`Joined "${group.name}" successfully!`);
       navigate(`/app/groups/${group.id}`);
-    } else {
+    } catch {
+      toast.error('Invalid join code');
+    }
+  };
+
+  const handleJoinPublicGroup = async (groupId: string) => {
+    if (!user?.id) {
+      toast.error('You must be logged in to join a group');
+      return;
+    }
+
+    try {
+      await addMemberMutation.mutateAsync({ groupId, userId: user.id });
+      const group = publicGroups.find((g) => g.id === groupId);
+      toast.success(`Joined "${group?.name}" successfully!`);
+      navigate(`/app/groups/${groupId}`);
+    } catch {
       toast.error('Failed to join group');
     }
   };
 
-  const handleJoinPublicGroup = (groupId: string) => {
-    const success = joinGroup(groupId, '');
-    if (success) {
-      const group = groups.find((g) => g.id === groupId);
-      toast.success(`Joined "${group?.name}" successfully!`);
-      navigate(`/app/groups/${groupId}`);
-    } else {
-      toast.error('Failed to join group');
-    }
-  };
+  if (isLoading) {
+    return (
+      <div className="p-6 lg:p-8 max-w-4xl mx-auto animate-fade-in">
+        <div className="flex items-center justify-center py-12">
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 lg:p-8 max-w-4xl mx-auto animate-fade-in">
@@ -96,9 +102,13 @@ export default function JoinGroup() {
                 placeholder="e.g., CS101-XYZ"
               />
             </div>
-            <Button onClick={handleJoinWithCode} className="w-full">
+            <Button
+              onClick={handleJoinWithCode}
+              className="w-full"
+              disabled={joinGroupMutation.isPending}
+            >
               <UserPlus className="w-4 h-4 mr-2" />
-              Join Group
+              {joinGroupMutation.isPending ? 'Joining...' : 'Join Group'}
             </Button>
           </CardContent>
         </Card>
@@ -173,6 +183,7 @@ export default function JoinGroup() {
                       size="sm"
                       className="w-full mt-4"
                       onClick={() => handleJoinPublicGroup(group.id)}
+                      disabled={addMemberMutation.isPending}
                     >
                       <UserPlus className="w-4 h-4 mr-2" />
                       Join Group
