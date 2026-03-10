@@ -1,101 +1,161 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link, Navigate } from 'react-router-dom';
 import { ArrowLeft, Save, Sparkles, Layers, CheckCircle, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useStudy } from '@/contexts/StudyContext';
 import { MaterialBadge } from '@/components/MaterialBadge';
 import { PrivacyBadge } from '@/components/PrivacyBadge';
+import {
+  useMaterial,
+  useNote,
+  useUpdateNote,
+  useGenerateSummary,
+  useGenerateFlashcards,
+  useTopics,
+  useGroups,
+} from '@/hooks/useApi';
 import { toast } from 'sonner';
-
-const sampleNoteContent = `# Binary Tree Fundamentals
-
-A binary tree is a tree data structure where each node has at most two children.
-
-## Key Properties
-- **Height**: The longest path from root to leaf
-- **Depth**: Distance from the root to a node
-
-## Traversal Methods
-- **Pre-order**: Root → Left → Right
-- **In-order**: Left → Root → Right  
-- **Post-order**: Left → Right → Root
-
-## Implementation Notes
-Binary trees can be implemented using:
-1. Node-based structure with pointers
-2. Array-based representation
-
-### Node Structure
-\`\`\`
-class TreeNode {
-  value: T
-  left: TreeNode | null
-  right: TreeNode | null
-}
-\`\`\`
-
-## Time Complexities
-| Operation | Average | Worst |
-|-----------|---------|-------|
-| Search    | O(log n)| O(n)  |
-| Insert    | O(log n)| O(n)  |
-| Delete    | O(log n)| O(n)  |
-`;
+import { CharCounter } from '@/components/CharCounter';
+import { LIMITS } from '@/lib/validation';
 
 export default function NoteView() {
   const { materialId } = useParams<{ materialId: string }>();
-  const { getMaterialById, getTopicById, getGroupById } = useStudy();
-  const [content, setContent] = useState(sampleNoteContent);
+  const { aiDisclosureAccepted, setAiDisclosureAccepted } = useStudy();
+  const [content, setContent] = useState('');
   const [isSaved, setIsSaved] = useState(true);
-  const [isGenerating, setIsGenerating] = useState<'summary' | 'flashcards' | null>(null);
+  const [showAiDisclosure, setShowAiDisclosure] = useState(false);
+  const [pendingAiAction, setPendingAiAction] = useState<'summary' | 'flashcards' | null>(null);
 
-  const material = materialId ? getMaterialById(materialId) : null;
+  const { data: material } = useMaterial(materialId);
+  const { data: note } = useNote(materialId);
+  const updateNote = useUpdateNote();
+  const generateSummary = useGenerateSummary();
+  const generateFlashcards = useGenerateFlashcards();
+  const { data: topics = [] } = useTopics();
+  const { data: groups = [] } = useGroups();
 
-  if (!material || material.type !== 'note') {
-    return <Navigate to="/app/topics" replace />;
-  }
+  const topic = material?.topicId ? topics.find((t) => t.id === material.topicId) : null;
+  const group = topic?.groupIds?.[0] ? groups.find((g) => g.id === topic.groupIds[0]) : null;
 
-  const topic = material.topicId ? getTopicById(material.topicId) : null;
-  const group = topic?.groupIds?.[0] ? getGroupById(topic.groupIds[0]) : null;
-
-  const handleSave = () => {
-    setIsSaved(true);
-    toast.success('Note saved!');
-  };
+  useEffect(() => {
+    if (note?.content !== undefined) {
+      setContent(note.content);
+    }
+  }, [note?.content]);
 
   const handleContentChange = (value: string) => {
     setContent(value);
     setIsSaved(false);
   };
 
+  const handleSave = async () => {
+    if (!materialId || !material) return;
+    try {
+      await updateNote.mutateAsync({
+        materialId,
+        title: material.title,
+        content,
+      });
+      setIsSaved(true);
+      toast.success('Note saved!');
+    } catch (err) {
+      toast.error('Failed to save note');
+    }
+  };
+
+  const runAiAction = async (action: 'summary' | 'flashcards') => {
+    if (!materialId) return;
+    const mutation = action === 'summary' ? generateSummary : generateFlashcards;
+    try {
+      await mutation.mutateAsync(materialId);
+      toast.success(action === 'summary' ? 'Summary generation started!' : 'Flashcard generation started!');
+    } catch (err) {
+      toast.error(`Failed to start ${action} generation`);
+    } finally {
+      setPendingAiAction(null);
+    }
+  };
+
   const handleGenerateSummary = () => {
-    setIsGenerating('summary');
-    toast.info('Generating summary...');
-    setTimeout(() => {
-      setIsGenerating(null);
-      toast.success('Summary generated!');
-    }, 3000);
+    if (!aiDisclosureAccepted) {
+      setPendingAiAction('summary');
+      setShowAiDisclosure(true);
+      return;
+    }
+    runAiAction('summary');
   };
 
   const handleGenerateFlashcards = () => {
-    setIsGenerating('flashcards');
-    toast.info('Generating flashcards...');
-    setTimeout(() => {
-      setIsGenerating(null);
-      toast.success('Flashcards generated!');
-    }, 3000);
+    if (!aiDisclosureAccepted) {
+      setPendingAiAction('flashcards');
+      setShowAiDisclosure(true);
+      return;
+    }
+    runAiAction('flashcards');
   };
+
+  const handleAiDisclosureAccept = () => {
+    setAiDisclosureAccepted(true);
+    setShowAiDisclosure(false);
+    if (pendingAiAction) {
+      runAiAction(pendingAiAction);
+    }
+  };
+
+  const handleAiDisclosureCancel = () => {
+    setShowAiDisclosure(false);
+    setPendingAiAction(null);
+  };
+
+  const isGenerating = generateSummary.isPending || generateFlashcards.isPending;
+
+  if (!materialId) {
+    return <Navigate to="/app/topics" replace />;
+  }
+
+  if (!material) {
+    return null;
+  }
+
+  if (material.type !== 'note') {
+    return <Navigate to="/app/topics" replace />;
+  }
 
   return (
     <div className="p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in h-full flex flex-col">
+      <AlertDialog open={showAiDisclosure} onOpenChange={(open) => !open && handleAiDisclosureCancel()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>AI Processing Disclosure</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your note content will be sent to OpenAI for processing. Data may transit through US-based servers.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleAiDisclosureCancel}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleAiDisclosureAccept}>I understand, continue</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
           <Link to={material.topicId ? `/app/topics/${material.topicId}` : '/app'}>
@@ -120,28 +180,27 @@ export default function NoteView() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* AI Actions Dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" disabled={isGenerating !== null}>
+              <Button variant="outline" size="sm" disabled={isGenerating}>
                 <Sparkles className="w-4 h-4 mr-2" />
                 AI Actions
                 <ChevronDown className="w-4 h-4 ml-2" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleGenerateSummary} disabled={isGenerating !== null}>
+              <DropdownMenuItem onClick={handleGenerateSummary} disabled={isGenerating}>
                 <Sparkles className="w-4 h-4 mr-2" />
-                {isGenerating === 'summary' ? 'Generating...' : 'Generate Summary'}
+                {generateSummary.isPending ? 'Generating...' : 'Generate Summary'}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleGenerateFlashcards} disabled={isGenerating !== null}>
+              <DropdownMenuItem onClick={handleGenerateFlashcards} disabled={isGenerating}>
                 <Layers className="w-4 h-4 mr-2" />
-                {isGenerating === 'flashcards' ? 'Generating...' : 'Generate Flashcards'}
+                {generateFlashcards.isPending ? 'Generating...' : 'Generate Flashcards'}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Button variant="outline" size="sm" onClick={handleSave} disabled={isSaved}>
+          <Button variant="outline" size="sm" onClick={handleSave} disabled={isSaved || updateNote.isPending}>
             {isSaved ? (
               <>
                 <CheckCircle className="w-4 h-4 mr-1 text-success" />
@@ -158,13 +217,17 @@ export default function NoteView() {
       </div>
 
       <Card className="flex-1 flex flex-col overflow-hidden">
-        <CardContent className="p-0 flex-1 overflow-hidden">
+        <CardContent className="p-0 flex-1 overflow-hidden flex flex-col">
           <Textarea
             value={content}
             onChange={(e) => handleContentChange(e.target.value)}
-            className="h-full min-h-[500px] border-0 rounded-lg font-mono text-sm resize-none focus-visible:ring-0 overflow-auto"
+            className="flex-1 min-h-[500px] border-0 rounded-lg font-mono text-sm resize-none focus-visible:ring-0 overflow-auto"
             placeholder="Start writing..."
+            maxLength={LIMITS.NOTE_CONTENT}
           />
+          <div className="px-4 pb-2 flex justify-end">
+            <CharCounter current={content.length} max={LIMITS.NOTE_CONTENT} />
+          </div>
         </CardContent>
       </Card>
     </div>

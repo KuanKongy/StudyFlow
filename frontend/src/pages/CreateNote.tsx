@@ -13,25 +13,28 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useStudy } from '@/contexts/StudyContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTopics, useCreateNote } from '@/hooks/useApi';
 import { toast } from 'sonner';
+import { CharCounter } from '@/components/CharCounter';
+import { LIMITS } from '@/lib/validation';
 
 export default function CreateNote() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const topicIdFromUrl = searchParams.get('topicId');
 
-  const { topics, createNote } = useStudy();
+  const { data: topics = [] } = useTopics();
+  const createNote = useCreateNote();
   const { user } = useAuth();
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [topicId, setTopicId] = useState(topicIdFromUrl || '');
 
-  const myTopics = topics.filter((t) => t.ownerId === user?.id);
+  const accessibleTopics = topics;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!title.trim()) {
@@ -39,9 +42,17 @@ export default function CreateNote() {
       return;
     }
 
-    const note = createNote(title, topicId || undefined, content);
-    toast.success(`Created "${title}"!`);
-    navigate(`/app/materials/${note.id}/note`);
+    try {
+      const result = await createNote.mutateAsync({
+        title: title.trim(),
+        topicId: topicId || '',
+        content: content || '',
+      });
+      toast.success(`Created "${title}"!`);
+      navigate(`/app/materials/${result.materialId}/note`);
+    } catch (err) {
+      toast.error('Failed to create note');
+    }
   };
 
   return (
@@ -74,18 +85,20 @@ export default function CreateNote() {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g., Chapter 1 Notes"
+                maxLength={LIMITS.NOTE_TITLE}
               />
+              <CharCounter current={title.length} max={LIMITS.NOTE_TITLE} />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="topic">Topic (optional)</Label>
-              <Select value={topicId || "none"} onValueChange={(val) => setTopicId(val === "none" ? "" : val)}>
+              <Select value={topicId || 'none'} onValueChange={(val) => setTopicId(val === 'none' ? '' : val)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select a topic" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">No topic</SelectItem>
-                  {myTopics.map((topic) => (
+                  {accessibleTopics.map((topic) => (
                     <SelectItem key={topic.id} value={topic.id}>
                       {topic.title}
                     </SelectItem>
@@ -103,13 +116,17 @@ export default function CreateNote() {
                 placeholder="Start writing your note..."
                 rows={10}
                 className="font-mono text-sm"
+                maxLength={LIMITS.NOTE_CONTENT}
               />
+              <CharCounter current={content.length} max={LIMITS.NOTE_CONTENT} />
             </div>
           </CardContent>
         </Card>
 
         <div className="flex gap-3">
-          <Button type="submit">Create Note</Button>
+          <Button type="submit" disabled={createNote.isPending}>
+            Create Note
+          </Button>
           <Link to={topicIdFromUrl ? `/app/topics/${topicIdFromUrl}` : '/app'}>
             <Button type="button" variant="outline">
               Cancel
