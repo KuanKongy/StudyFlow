@@ -15,29 +15,40 @@ import {
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { useStudy } from '@/contexts/StudyContext';
+import {
+  useMaterial,
+  useFlashcardSet,
+  useFlashcards,
+  useTopics,
+  useGroups,
+  useCreateFlashcard,
+  useUpdateFlashcard,
+  useDeleteFlashcard,
+} from '@/hooks/useApi';
 import { MaterialBadge } from '@/components/MaterialBadge';
 import { PrivacyBadge } from '@/components/PrivacyBadge';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { CharCounter } from '@/components/CharCounter';
+import { LIMITS } from '@/lib/validation';
 
 type ViewMode = 'list' | 'study';
 
 export default function FlashcardsView() {
   const { materialId } = useParams<{ materialId: string }>();
-  const { 
-    getMaterialById, 
-    getTopicById, 
-    getGroupById, 
-    getFlashcardsBySet,
-    createFlashcard,
-    updateFlashcard,
-    deleteFlashcard,
-  } = useStudy();
+  const { data: material, isLoading: matLoading } = useMaterial(materialId);
+  const { data: flashcardSet } = useFlashcardSet(materialId);
+  const { data: flashcards = [], isLoading: cardsLoading } = useFlashcards(flashcardSet?.id);
+  const { data: topics = [] } = useTopics();
+  const { data: groups = [] } = useGroups();
+  const createFlashcardMutation = useCreateFlashcard();
+  const updateFlashcardMutation = useUpdateFlashcard();
+  const deleteFlashcardMutation = useDeleteFlashcard();
+
   const [mode, setMode] = useState<ViewMode>('list');
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
@@ -49,15 +60,16 @@ export default function FlashcardsView() {
   const [editQuestion, setEditQuestion] = useState('');
   const [editAnswer, setEditAnswer] = useState('');
 
-  const material = materialId ? getMaterialById(materialId) : null;
-
-  if (!material || material.type !== 'flashcard_set') {
-    return <Navigate to="/app/topics" replace />;
+  if (matLoading || cardsLoading) {
+    return <div className="p-6 text-muted-foreground">Loading flashcards...</div>;
   }
 
-  const topic = material.topicId ? getTopicById(material.topicId) : null;
-  const group = topic?.groupIds?.[0] ? getGroupById(topic.groupIds[0]) : null;
-  const flashcards = getFlashcardsBySet(material.id);
+  if (!material || material.type !== 'flashcard_set') {
+    return <Navigate to="/app/flashcards" replace />;
+  }
+
+  const topic = material.topicId ? topics.find((t) => t.id === material.topicId) : null;
+  const group = topic?.groupIds?.[0] ? groups.find((g) => g.id === topic.groupIds[0]) : null;
 
   const currentCard = flashcards[currentIndex];
   const progress = flashcards.length > 0 ? ((currentIndex + 1) / flashcards.length) * 100 : 0;
@@ -87,25 +99,34 @@ export default function FlashcardsView() {
   };
 
   const toggleExpand = (cardId: string) => {
-    const newExpanded = new Set(expandedCards);
-    if (newExpanded.has(cardId)) {
-      newExpanded.delete(cardId);
-    } else {
-      newExpanded.add(cardId);
-    }
-    setExpandedCards(newExpanded);
+    const next = new Set(expandedCards);
+    if (next.has(cardId)) next.delete(cardId);
+    else next.add(cardId);
+    setExpandedCards(next);
   };
 
-  const handleAddFlashcard = () => {
+  const handleAddFlashcard = async () => {
     if (!newQuestion.trim() || !newAnswer.trim()) {
       toast.error('Please enter both question and answer');
       return;
     }
-    createFlashcard(material.id, newQuestion.trim(), newAnswer.trim());
-    setNewQuestion('');
-    setNewAnswer('');
-    setShowAddForm(false);
-    toast.success('Flashcard added!');
+    if (!flashcardSet) {
+      toast.error('Flashcard set not loaded');
+      return;
+    }
+    try {
+      await createFlashcardMutation.mutateAsync({
+        setId: flashcardSet.id,
+        question: newQuestion.trim(),
+        answer: newAnswer.trim(),
+      });
+      setNewQuestion('');
+      setNewAnswer('');
+      setShowAddForm(false);
+      toast.success('Flashcard added!');
+    } catch {
+      toast.error('Failed to add flashcard');
+    }
   };
 
   const handleStartEdit = (cardId: string, question: string, answer: string) => {
@@ -114,19 +135,30 @@ export default function FlashcardsView() {
     setEditAnswer(answer);
   };
 
-  const handleSaveEdit = (cardId: string) => {
+  const handleSaveEdit = async (cardId: string) => {
     if (!editQuestion.trim() || !editAnswer.trim()) {
       toast.error('Please enter both question and answer');
       return;
     }
-    updateFlashcard(cardId, editQuestion.trim(), editAnswer.trim());
-    setEditingCard(null);
-    toast.success('Flashcard updated!');
+    try {
+      await updateFlashcardMutation.mutateAsync({
+        cardId,
+        updates: { question: editQuestion.trim(), answer: editAnswer.trim() },
+      });
+      setEditingCard(null);
+      toast.success('Flashcard updated!');
+    } catch {
+      toast.error('Failed to update flashcard');
+    }
   };
 
-  const handleDelete = (cardId: string) => {
-    deleteFlashcard(cardId);
-    toast.success('Flashcard deleted!');
+  const handleDelete = async (cardId: string) => {
+    try {
+      await deleteFlashcardMutation.mutateAsync(cardId);
+      toast.success('Flashcard deleted!');
+    } catch {
+      toast.error('Failed to delete flashcard');
+    }
   };
 
   return (
@@ -134,7 +166,7 @@ export default function FlashcardsView() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
-          <Link to={material.topicId ? `/app/topics/${material.topicId}` : '/app'}>
+          <Link to={material.topicId ? `/app/topics/${material.topicId}` : '/app/flashcards'}>
             <Button variant="ghost" size="icon-sm">
               <ArrowLeft className="w-4 h-4" />
             </Button>
@@ -148,7 +180,7 @@ export default function FlashcardsView() {
               {topic && (
                 <>
                   <span className="text-sm text-muted-foreground">{topic.title}</span>
-                  <span className="text-muted-foreground">•</span>
+                  <span className="text-muted-foreground">·</span>
                   <PrivacyBadge privacy={topic.privacy} groupName={group?.name} />
                 </>
               )}
@@ -157,136 +189,75 @@ export default function FlashcardsView() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button
-            variant={mode === 'list' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => setMode('list')}
-          >
-            <List className="w-4 h-4 mr-1" />
-            List
+          <Button variant={mode === 'list' ? 'secondary' : 'ghost'} size="sm" onClick={() => setMode('list')}>
+            <List className="w-4 h-4 mr-1" />List
           </Button>
-          <Button
-            variant={mode === 'study' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => setMode('study')}
-          >
-            <Play className="w-4 h-4 mr-1" />
-            Study
+          <Button variant={mode === 'study' ? 'secondary' : 'ghost'} size="sm" onClick={() => setMode('study')}>
+            <Play className="w-4 h-4 mr-1" />Study
           </Button>
         </div>
       </div>
 
       {mode === 'list' ? (
-        /* List Mode */
         <div className="space-y-3">
-          {/* Add New Card Button */}
-          <Card className="study-card border-dashed">
+          <Card className="border-dashed">
             <CardContent className="p-4">
               {showAddForm ? (
                 <div className="space-y-3">
-                  <Input
-                    placeholder="Question"
-                    value={newQuestion}
-                    onChange={(e) => setNewQuestion(e.target.value)}
-                    autoFocus
-                  />
-                  <Textarea
-                    placeholder="Answer"
-                    value={newAnswer}
-                    onChange={(e) => setNewAnswer(e.target.value)}
-                    rows={3}
-                  />
+                  <Input placeholder="Question" value={newQuestion} onChange={(e) => setNewQuestion(e.target.value)} maxLength={LIMITS.FLASHCARD_QUESTION} autoFocus />
+                  <CharCounter current={newQuestion.length} max={LIMITS.FLASHCARD_QUESTION} />
+                  <Textarea placeholder="Answer" value={newAnswer} onChange={(e) => setNewAnswer(e.target.value)} rows={3} maxLength={LIMITS.FLASHCARD_ANSWER} />
+                  <CharCounter current={newAnswer.length} max={LIMITS.FLASHCARD_ANSWER} />
                   <div className="flex gap-2">
-                    <Button size="sm" onClick={handleAddFlashcard}>
-                      <Check className="w-4 h-4 mr-1" />
-                      Add
+                    <Button size="sm" onClick={handleAddFlashcard} disabled={createFlashcardMutation.isPending}>
+                      <Check className="w-4 h-4 mr-1" />{createFlashcardMutation.isPending ? 'Adding...' : 'Add'}
                     </Button>
                     <Button size="sm" variant="ghost" onClick={() => setShowAddForm(false)}>
-                      <X className="w-4 h-4 mr-1" />
-                      Cancel
+                      <X className="w-4 h-4 mr-1" />Cancel
                     </Button>
                   </div>
                 </div>
               ) : (
-                <Button
-                  variant="ghost"
-                  className="w-full justify-center text-muted-foreground"
-                  onClick={() => setShowAddForm(true)}
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add New Flashcard
+                <Button variant="ghost" className="w-full justify-center text-muted-foreground" onClick={() => setShowAddForm(true)}>
+                  <Plus className="w-4 h-4 mr-2" />Add New Flashcard
                 </Button>
               )}
             </CardContent>
           </Card>
 
           {flashcards.map((card, index) => (
-            <Card
-              key={card.id}
-              className="study-card"
-            >
+            <Card key={card.id}>
               <CardContent className="p-4">
                 {editingCard === card.id ? (
                   <div className="space-y-3">
-                    <Input
-                      placeholder="Question"
-                      value={editQuestion}
-                      onChange={(e) => setEditQuestion(e.target.value)}
-                    />
-                    <Textarea
-                      placeholder="Answer"
-                      value={editAnswer}
-                      onChange={(e) => setEditAnswer(e.target.value)}
-                      rows={3}
-                    />
+                    <Input placeholder="Question" value={editQuestion} onChange={(e) => setEditQuestion(e.target.value)} maxLength={LIMITS.FLASHCARD_QUESTION} />
+                    <CharCounter current={editQuestion.length} max={LIMITS.FLASHCARD_QUESTION} />
+                    <Textarea placeholder="Answer" value={editAnswer} onChange={(e) => setEditAnswer(e.target.value)} rows={3} maxLength={LIMITS.FLASHCARD_ANSWER} />
+                    <CharCounter current={editAnswer.length} max={LIMITS.FLASHCARD_ANSWER} />
                     <div className="flex gap-2">
                       <Button size="sm" onClick={() => handleSaveEdit(card.id)}>
-                        <Check className="w-4 h-4 mr-1" />
-                        Save
+                        <Check className="w-4 h-4 mr-1" />Save
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => setEditingCard(null)}>
-                        <X className="w-4 h-4 mr-1" />
-                        Cancel
+                        <X className="w-4 h-4 mr-1" />Cancel
                       </Button>
                     </div>
                   </div>
                 ) : (
                   <div className="flex items-start gap-3">
-                    <span className="text-sm font-medium text-muted-foreground w-6">
-                      {index + 1}.
-                    </span>
+                    <span className="text-sm font-medium text-muted-foreground w-6">{index + 1}.</span>
                     <div className="flex-1 cursor-pointer" onClick={() => toggleExpand(card.id)}>
                       <p className="font-medium mb-2">{card.question}</p>
-                      <div
-                        className={cn(
-                          'overflow-hidden transition-all duration-300',
-                          expandedCards.has(card.id)
-                            ? 'max-h-96 opacity-100'
-                            : 'max-h-0 opacity-0'
-                        )}
-                      >
-                        <div className="pt-3 border-t text-muted-foreground">
-                          {card.answer}
-                        </div>
+                      <div className={cn('overflow-hidden transition-all duration-300', expandedCards.has(card.id) ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0')}>
+                        <div className="pt-3 border-t text-muted-foreground">{card.answer}</div>
                       </div>
-                      {!expandedCards.has(card.id) && (
-                        <p className="text-xs text-primary mt-2">Click to reveal answer</p>
-                      )}
+                      {!expandedCards.has(card.id) && <p className="text-xs text-primary mt-2">Click to reveal answer</p>}
                     </div>
                     <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => handleStartEdit(card.id, card.question, card.answer)}
-                      >
+                      <Button variant="ghost" size="icon-sm" onClick={() => handleStartEdit(card.id, card.question, card.answer)}>
                         <Edit2 className="w-4 h-4" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => handleDelete(card.id)}
-                      >
+                      <Button variant="ghost" size="icon-sm" className="text-destructive hover:text-destructive" onClick={() => handleDelete(card.id)}>
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
@@ -297,7 +268,6 @@ export default function FlashcardsView() {
           ))}
         </div>
       ) : (
-        /* Study Mode */
         <div className="max-w-2xl mx-auto">
           {flashcards.length === 0 ? (
             <Card className="p-8 text-center">
@@ -305,29 +275,16 @@ export default function FlashcardsView() {
             </Card>
           ) : (
             <>
-              {/* Progress */}
               <div className="mb-6">
                 <div className="flex items-center justify-between text-sm mb-2">
-                  <span className="text-muted-foreground">
-                    Card {currentIndex + 1} of {flashcards.length}
-                  </span>
+                  <span className="text-muted-foreground">Card {currentIndex + 1} of {flashcards.length}</span>
                   <span className="font-medium">{Math.round(progress)}%</span>
                 </div>
                 <Progress value={progress} className="h-2" />
               </div>
 
-              {/* Flashcard */}
-              <div
-                className="perspective-1000 cursor-pointer mb-6"
-                onClick={() => setIsFlipped(!isFlipped)}
-              >
-                <div
-                  className={cn(
-                    'relative w-full aspect-[3/2] flashcard-flip',
-                    isFlipped && 'flipped'
-                  )}
-                >
-                  {/* Front */}
+              <div className="perspective-1000 cursor-pointer mb-6" onClick={() => setIsFlipped(!isFlipped)}>
+                <div className={cn('relative w-full aspect-[3/2] flashcard-flip', isFlipped && 'flipped')}>
                   <Card className="absolute inset-0 flashcard-front backface-hidden">
                     <CardContent className="h-full flex flex-col items-center justify-center p-8 text-center">
                       <p className="text-xs text-muted-foreground mb-4">Question</p>
@@ -335,8 +292,6 @@ export default function FlashcardsView() {
                       <p className="text-xs text-primary mt-6">Click to flip</p>
                     </CardContent>
                   </Card>
-
-                  {/* Back */}
                   <Card className="absolute inset-0 flashcard-back backface-hidden bg-success/5 border-success/20">
                     <CardContent className="h-full flex flex-col items-center justify-center p-8 text-center">
                       <p className="text-xs text-muted-foreground mb-4">Answer</p>
@@ -346,31 +301,17 @@ export default function FlashcardsView() {
                 </div>
               </div>
 
-              {/* Controls */}
               <div className="flex items-center justify-center gap-3">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={goPrev}
-                  disabled={currentIndex === 0}
-                >
+                <Button variant="outline" size="icon" onClick={goPrev} disabled={currentIndex === 0}>
                   <ChevronLeft className="w-5 h-5" />
                 </Button>
-
                 <Button variant="outline" size="icon" onClick={reset}>
                   <RotateCcw className="w-4 h-4" />
                 </Button>
-
                 <Button variant="outline" size="icon" onClick={shuffle}>
                   <Shuffle className="w-4 h-4" />
                 </Button>
-
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={goNext}
-                  disabled={currentIndex === flashcards.length - 1}
-                >
+                <Button variant="outline" size="icon" onClick={goNext} disabled={currentIndex === flashcards.length - 1}>
                   <ChevronRight className="w-5 h-5" />
                 </Button>
               </div>
