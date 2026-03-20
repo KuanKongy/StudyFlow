@@ -1,0 +1,123 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "TerraformAndCICore",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:*",
+        "elasticloadbalancing:*",
+        "ecr:*",
+        "ecs:*",
+        "application-autoscaling:*",
+        "logs:*",
+        "route53:*",
+        "cloudfront:*",
+        "s3:*",
+        "cloudwatch:*",
+        "sts:GetCallerIdentity",
+        "acm:DescribeCertificate",
+        "acm:ListCertificates",
+        "acm:ListTagsForCertificate"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IAMStudyFlowRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:DeleteRolePolicy",
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListInstanceProfilesForRole",
+        "iam:ListRolePolicies",
+        "iam:ListRoleTags",
+        "iam:PutRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:UpdateRole"
+      ],
+      "Resource": "arn:aws:iam::YOUR_ACCOUNT_ID:role/studyflow-*"
+    },
+    {
+      "Sid": "IAMAttachDetachManagedPolicyForECSExecution",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::YOUR_ACCOUNT_ID:role/studyflow-*",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+        }
+      }
+    },
+    {
+      "Sid": "IAMListAttachedRolePolicies",
+      "Effect": "Allow",
+      "Action": "iam:ListAttachedRolePolicies",
+      "Resource": "arn:aws:iam::YOUR_ACCOUNT_ID:role/studyflow-*"
+    },
+    {
+      "Sid": "IAMReadAwsEcsExecutionPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion"
+      ],
+      "Resource": "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+    },
+    {
+      "Sid": "PassRoleToECSTasksOnly",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::YOUR_ACCOUNT_ID:role/studyflow-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "ecs-tasks.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "CreateServiceLinkedRolesForStack",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::YOUR_ACCOUNT_ID:role/aws-service-role/*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": [
+            "ecs.amazonaws.com",
+            "elasticloadbalancing.amazonaws.com",
+            "application-autoscaling.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "SecretsManagerReadForStudyFlow",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:GetSecretValue"
+      ],
+      "Resource": [
+        "arn:aws:secretsmanager:ca-central-1:YOUR_ACCOUNT_ID:secret:studyflow/mongo-*",
+        "arn:aws:secretsmanager:ca-central-1:YOUR_ACCOUNT_ID:secret:studyflow/redis-*",
+        "arn:aws:secretsmanager:ca-central-1:YOUR_ACCOUNT_ID:secret:studyflow/openai-*"
+      ]
+    },
+    {
+      "Sid": "SSMDeployParameters",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:PutParameter"
+      ],
+      "Resource": "arn:aws:ssm:ca-central-1:YOUR_ACCOUNT_ID:parameter/studyflow/prod/*"
+    }
+  ]
+}

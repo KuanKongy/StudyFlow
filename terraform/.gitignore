@@ -1,0 +1,26 @@
+# Local Terraform working directory (providers, modules cache)
+.terraform/
+
+# State — use remote backend (Terraform Cloud); never commit local state
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Local variable files (may contain secrets); use terraform.tfvars.example + CI
+terraform.tfvars
+*.auto.tfvars
+*.auto.tfvars.json
+
+# CLI config files (optional; ignore if you keep tokens here)
+.terraformrc
+terraform.rc
+
+# Override files (local experimentation)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
