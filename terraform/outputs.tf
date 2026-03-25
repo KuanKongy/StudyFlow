@@ -30,6 +30,10 @@ output "frontend_bucket_name" {
   value = module.frontend.bucket_name
 }
 
+output "frontend_cloudfront_distribution_id" {
+  value = module.frontend.cloudfront_distribution_id
+}
+
 output "ecs_cluster_name" {
   value = module.ecs.cluster_name
 }
