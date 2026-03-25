@@ -10,7 +10,8 @@ Documentation for Terraform and AWS setup: [`../../terraform/MANUAL_SETUP_TFC_GH
 |----------|---------|---------|
 | [`pr-checks.yml`](./pr-checks.yml) | Pull request to `main` | API + Worker lint/test; Terraform **plan** only (no apply). |
 | [`build-images.yml`](./build-images.yml) | Push to `main` | Build/push API and Worker Docker images to ECR; write image URIs and deploy metadata to **SSM**. |
-| [`deploy-terraform.yml`](./deploy-terraform.yml) | **Manual** (`workflow_dispatch`) | Terraform **plan** → artifacts → **`production` environment** gate → **apply** saved plan → ECS force deploy → health check. |
+| [`deploy-frontend.yml`](./deploy-frontend.yml) | Push to `main` (paths: `frontend/**`) or **manual** | `npm run build`, **`aws s3 sync`** to the Terraform frontend bucket, **CloudFront invalidation**. Requires `FRONTEND_AUTH0_*` secrets for Vite env. |
+| [`deploy-terraform.yml`](./deploy-terraform.yml) | Push to **`main`** + optional **manual** (`workflow_dispatch`) | Terraform **plan** → artifacts → **`production` environment** gate (required reviewers) → **apply** saved plan → ECS force deploy → health check. |
 
 **Authentication**
 
@@ -41,13 +42,26 @@ Runs on push to **`main`**.
 
 **Bootstrap:** Run an initial **`terraform apply`** (local or deploy workflow) so ECR outputs exist before the first successful `main` image build.
 
+## `deploy-frontend.yml`
+
+The S3 bucket behind CloudFront starts **empty**; Terraform does not upload the SPA. This workflow fills it.
+
+1. **`terraform init`** → read **`frontend_bucket_name`** and **`frontend_cloudfront_distribution_id`** (new Terraform outputs).
+2. **`npm ci` / `npm run build`** in `frontend/` with **`VITE_AUTH0_*`** from GitHub secrets (same values as in your Auth0 app / `terraform.tfvars` secrets).
+3. **`aws s3 sync dist/`** to the bucket with **`--delete`**.
+4. **`aws cloudfront create-invalidation`** for `/*`.
+
+**First run:** Use **Actions → Deploy frontend to S3 → Run workflow** if you have not changed `frontend/` since adding this file (path filters would otherwise skip a push-only trigger).
+
 **Note:** Image vulnerability scanning (e.g. Trivy) is not in this workflow; add a step if your process requires it.
 
 ## `deploy-terraform.yml`
 
-**Manual** run only.
+Runs on **every push to `main`**. You can also **Run workflow** manually for ad-hoc deploys or rollbacks.
 
-**Input `rollback_sha` (optional):** If set, images are `ECR_REPO:rollback_sha`. If empty, read image URIs from the SSM parameters written by `build-images.yml`.
+**`production` environment:** In **Settings → Environments → production**, enable **Required reviewers** so the workflow pauses after **`plan`** finishes (artifacts include human-readable `plan.txt`). Approve the pending **`apply`** job to continue.
+
+**Input `rollback_sha` (`workflow_dispatch` only, optional):** If set, images are `ECR_REPO:rollback_sha`. On push (or if empty), image URIs come from **SSM** as written by `build-images.yml`.
 
 **Jobs**
 

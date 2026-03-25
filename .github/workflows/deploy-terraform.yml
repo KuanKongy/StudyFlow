@@ -1,6 +1,8 @@
 name: Deploy Terraform
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       rollback_sha:
@@ -8,6 +10,11 @@ on:
         required: false
         default: ""
         type: string
+
+# One deploy at a time; do not cancel an in-flight plan/apply mid-run.
+concurrency:
+  group: deploy-terraform-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   id-token: write
@@ -46,7 +53,7 @@ jobs:
       - name: Resolve deployment image URIs
         id: resolve_images
         env:
-          ROLLBACK_SHA: ${{ github.event.inputs.rollback_sha }}
+          ROLLBACK_SHA: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_sha || '' }}
         run: |
           API_REPO="$(terraform output -raw ecr_api_repository_url)"
           WORKER_REPO="$(terraform output -raw ecr_worker_repository_url)"
@@ -123,7 +130,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: deploy-tfplan-artifacts
-          path: ${{ env.TF_WORKING_DIR }}
+          path: .
 
       - name: Terraform init
         run: terraform init
