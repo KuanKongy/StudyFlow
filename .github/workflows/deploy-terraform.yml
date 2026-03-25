@@ -154,7 +154,6 @@ jobs:
           echo "cluster_name=$(terraform output -raw ecs_cluster_name)" >> "$GITHUB_OUTPUT"
           echo "api_service_name=$(terraform output -raw api_service_name)" >> "$GITHUB_OUTPUT"
           echo "worker_service_name=$(terraform output -raw worker_service_name)" >> "$GITHUB_OUTPUT"
-          echo "alb_dns_name=$(terraform output -raw alb_dns_name)" >> "$GITHUB_OUTPUT"
         working-directory: ${{ env.TF_WORKING_DIR }}
 
       - name: Force ECS deployment
@@ -177,7 +176,7 @@ jobs:
       - name: Health check with retry
         run: |
           for i in {1..10}; do
-            if curl -fsS "https://${{ steps.tf_runtime.outputs.alb_dns_name }}/health"; then
+            if curl -fsS "https://studyflow.biz/health"; then
               exit 0
             fi
             sleep 10
