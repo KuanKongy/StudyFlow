@@ -10,11 +10,6 @@ on:
         default: ""
         type: string
 
-# One deploy at a time; do not cancel an in-flight plan/apply mid-run.
-concurrency:
-  group: deploy-terraform-${{ github.ref }}
-  cancel-in-progress: false
-
 permissions:
   id-token: write
   contents: read
@@ -110,6 +105,11 @@ jobs:
 
   apply:
     needs: [plan]
+    # Serialize applies only. Workflow-level concurrency blocked `plan` while a prior run
+    # waited indefinitely on the production approval gate.
+    concurrency:
+      group: studyflow-terraform-apply-${{ github.ref }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     environment: production
     steps:

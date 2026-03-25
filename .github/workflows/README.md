@@ -67,6 +67,8 @@ The S3 bucket behind CloudFront starts **empty**; Terraform does not upload the 
 
 **Input `rollback_sha` (`workflow_dispatch` only, optional):** If set, images are `ECR_REPO:rollback_sha`. When run from the main pipeline (`workflow_call`), image URIs always come from **SSM** (written by `build-images` in the same pipeline).
 
+**Concurrency:** Only the **`apply`** job uses a concurrency group so one production apply runs at a time. **`plan`** is not queued behind an older run that is still waiting on the **`production`** environment approval (workflow-level concurrency used to cause that).
+
 **Jobs**
 
 1. **`plan`** — resolve images, write `terraform.tfvars`, `terraform plan … -out=tfplan`, upload `deploy-tfplan-artifacts`.
