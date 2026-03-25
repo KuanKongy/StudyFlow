@@ -1,22 +1,35 @@
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, FileText, Users, ArrowRight, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext';
-import { useStudy } from '@/contexts/StudyContext';
+import { useGroups, useAllMaterials, useJobs, useTopics } from '@/hooks/useApi';
 import { MaterialBadge } from '@/components/MaterialBadge';
 import { PrivacyBadge } from '@/components/PrivacyBadge';
 import { EmptyState } from '@/components/EmptyState';
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const { groups, materials, jobs, topics, getGroupById } = useStudy();
+  const { data: groups = [] } = useGroups();
+  const { data: materials = [] } = useAllMaterials();
+  const { data: jobs = [] } = useJobs();
+  const { data: topics = [] } = useTopics();
 
-  const recentMaterials = [...materials]
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-    .slice(0, 5);
+  const recentMaterials = useMemo(
+    () =>
+      [...materials]
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+        .slice(0, 5),
+    [materials]
+  );
 
-  const activeJobs = jobs.filter((j) => j.status === 'pending' || j.status === 'processing');
+  const activeJobs = useMemo(
+    () => jobs.filter((j) => j.status === 'queued' || j.status === 'processing'),
+    [jobs]
+  );
+
+  const displayGroups = useMemo(() => groups.slice(0, 3), [groups]);
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto animate-fade-in">
@@ -117,7 +130,7 @@ export default function Dashboard() {
                 <div className="space-y-3">
                   {recentMaterials.map((material) => {
                     const topic = topics.find((t) => t.id === material.topicId);
-                    const group = topic?.groupIds?.[0] ? getGroupById(topic.groupIds[0]) : null;
+                    const group = topic?.groupIds?.[0] ? groups.find((g) => g.id === topic.groupIds[0]) : null;
 
                     return (
                       <Link
@@ -218,7 +231,7 @@ export default function Dashboard() {
                 />
               ) : (
                 <div className="space-y-2">
-                  {groups.slice(0, 3).map((group) => (
+                  {displayGroups.map((group) => (
                     <Link key={group.id} to={`/app/groups/${group.id}`}>
                       <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted transition-colors">
                         <div className="w-8 h-8 rounded-lg bg-accent/10 text-accent flex items-center justify-center text-sm font-medium">

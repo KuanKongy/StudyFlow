@@ -1,16 +1,19 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, Link } from 'react-router-dom';
 import { BookOpen, Sparkles, Users, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
 export default function Login() {
-  const { isAuthenticated, login, isLoading } = useAuth();
+  const { isAuthenticated, login, isLoading, error } = useAuth();
 
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="w-12 h-12 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+          <p className="text-sm text-muted-foreground">Signing you in...</p>
+        </div>
       </div>
     );
   }
@@ -46,7 +49,6 @@ export default function Login() {
         </div>
       </div>
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 relative">
-        {/* Theme Toggle */}
         <div className="absolute top-4 right-4">
           <ThemeToggle />
         </div>
@@ -59,11 +61,22 @@ export default function Login() {
             <span className="text-2xl font-bold">StudyFlow</span>
           </div>
           <div className="text-center">
-            <h2 className="text-2xl font-bold mb-2">Welcome back</h2>
-            <p className="text-muted-foreground">Sign in to continue to your study space</p>
+            <h2 className="text-2xl font-bold mb-2">Welcome to StudyFlow</h2>
+            <p className="text-muted-foreground">Organize notes, summaries, and flashcards with your study group.</p>
           </div>
-          <Button onClick={login} variant="hero" size="xl" className="w-full">Sign in with Auth0</Button>
-          <p className="text-center text-xs text-muted-foreground">By continuing, you agree to our Terms of Service.</p>
+          {error && (
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
+              <p className="font-medium mb-1">Authentication error</p>
+              <p>{error}</p>
+            </div>
+          )}
+          <Button onClick={login} variant="hero" size="xl" className="w-full">Get started</Button>
+          <p className="text-center text-xs text-muted-foreground">
+            By continuing, you agree to our{' '}
+            <Link to="/terms" className="underline hover:text-foreground">Terms of Service</Link>
+            {' '}and{' '}
+            <Link to="/privacy" className="underline hover:text-foreground">Privacy Policy</Link>.
+          </p>
         </div>
       </div>
     </div>

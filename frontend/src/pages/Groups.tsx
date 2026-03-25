@@ -1,46 +1,54 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Users, ArrowRight, Lock, Globe, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { useStudy } from '@/contexts/StudyContext';
-import { useAuth } from '@/contexts/AuthContext';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { useGroups, useUsers } from '@/hooks/useApi';
 import { EmptyState } from '@/components/EmptyState';
+import { UserProfileModal } from '@/components/UserProfileModal';
 
 export default function Groups() {
-  const { getMyGroups, getTopicsByGroup, getUserById } = useStudy();
-  const { user } = useAuth();
+  const { data: myGroups = [], isLoading } = useGroups();
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
 
-  const myGroups = getMyGroups(user?.id || '');
+  const ownerIds = [...new Set(myGroups.map((g) => g.ownerId))];
+  const memberIds = myGroups.flatMap((g) => g.memberIds);
+  const allUserIds = [...new Set([...ownerIds, ...memberIds])];
+  const { data: users = [] } = useUsers(allUserIds);
+
+  const getUserById = (authId: string) => users.find((u) => u.id === authId || u.authId === authId);
+
+  if (isLoading) {
+    return (
+      <div className="p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
+        <div className="flex items-center justify-center py-12">
+          <p className="text-muted-foreground">Loading groups...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const profileUser = profileUserId ? getUserById(profileUserId) : null;
 
   return (
     <div className="p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
-      {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold mb-1">My Groups</h1>
-          <p className="text-muted-foreground">
-            Collaborate with others in study groups
-          </p>
+          <p className="text-muted-foreground">Collaborate with others in study groups</p>
         </div>
         <div className="flex gap-2">
           <Link to="/app/groups/join">
-            <Button variant="outline">
-              <UserPlus className="w-4 h-4 mr-2" />
-              Join Group
-            </Button>
+            <Button variant="outline"><UserPlus className="w-4 h-4 mr-2" />Join Group</Button>
           </Link>
           <Link to="/app/groups/new">
-            <Button>
-              <Plus className="w-4 h-4 mr-2" />
-              Create Group
-            </Button>
+            <Button><Plus className="w-4 h-4 mr-2" />Create Group</Button>
           </Link>
         </div>
       </div>
 
-      {/* Groups Grid */}
       {myGroups.length === 0 ? (
         <EmptyState
           icon={<Users className="w-8 h-8" />}
@@ -49,16 +57,10 @@ export default function Groups() {
           action={
             <div className="flex gap-2">
               <Link to="/app/groups/join">
-                <Button variant="outline">
-                  <UserPlus className="w-4 h-4 mr-2" />
-                  Join Group
-                </Button>
+                <Button variant="outline"><UserPlus className="w-4 h-4 mr-2" />Join Group</Button>
               </Link>
               <Link to="/app/groups/new">
-                <Button>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Create Group
-                </Button>
+                <Button><Plus className="w-4 h-4 mr-2" />Create Group</Button>
               </Link>
             </div>
           }
@@ -66,48 +68,50 @@ export default function Groups() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {myGroups.map((group) => {
-            const topics = getTopicsByGroup(group.id);
             const owner = getUserById(group.ownerId);
             const memberAvatars = group.memberIds.slice(0, 4).map((id) => getUserById(id));
-            
+
             return (
               <Link key={group.id} to={`/app/groups/${group.id}`}>
                 <Card className="study-card h-full hover:border-accent/50 transition-colors cursor-pointer group">
                   <CardContent className="p-5">
                     <div className="flex items-start gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-accent/20 to-accent/5 text-accent flex items-center justify-center text-lg font-semibold shrink-0">
-                        {group.name.charAt(0)}
-                      </div>
+                      <Avatar className="w-12 h-12 rounded-xl shrink-0">
+                        <AvatarImage src={group.avatar} className="rounded-xl" />
+                        <AvatarFallback className="rounded-xl bg-gradient-to-br from-accent/20 to-accent/5 text-accent text-lg font-semibold">
+                          {group.name.charAt(0)}
+                        </AvatarFallback>
+                      </Avatar>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <h3 className="font-semibold truncate group-hover:text-accent transition-colors">
-                            {group.name}
-                          </h3>
-                          {group.joinCode ? (
-                            <Lock className="w-3 h-3 text-muted-foreground" />
-                          ) : (
-                            <Globe className="w-3 h-3 text-muted-foreground" />
-                          )}
+                          <h3 className="font-semibold truncate group-hover:text-accent transition-colors">{group.name}</h3>
+                          {group.joinCode ? <Lock className="w-3 h-3 text-muted-foreground" /> : <Globe className="w-3 h-3 text-muted-foreground" />}
                         </div>
                         {group.description && (
-                          <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
-                            {group.description}
-                          </p>
+                          <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{group.description}</p>
                         )}
                         <div className="flex items-center gap-2 mt-2">
-                          <Badge variant="secondary" className="text-xs">
-                            Owner: {owner?.username || 'Unknown'}
+                          <Badge
+                            variant="secondary"
+                            className="text-xs cursor-pointer hover:bg-secondary/80"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setProfileUserId(group.ownerId);
+                            }}
+                          >
+                            Owner: {owner?.name || owner?.username || 'Unknown'}
                           </Badge>
                         </div>
                       </div>
                     </div>
-                    
+
                     <div className="flex items-center justify-between mt-4 pt-4 border-t">
                       <div className="flex items-center gap-2">
-                        {/* Member Avatars */}
                         <div className="flex -space-x-2">
                           {memberAvatars.map((member, idx) => (
                             <Avatar key={idx} className="w-6 h-6 border-2 border-card">
+                              <AvatarImage src={member?.avatar} />
                               <AvatarFallback className="text-xs bg-primary text-primary-foreground">
                                 {member?.username?.charAt(0).toUpperCase() || '?'}
                               </AvatarFallback>
@@ -132,6 +136,12 @@ export default function Groups() {
           })}
         </div>
       )}
+
+      <UserProfileModal
+        user={profileUser}
+        open={!!profileUserId}
+        onOpenChange={(open) => { if (!open) setProfileUserId(null); }}
+      />
     </div>
   );
 }

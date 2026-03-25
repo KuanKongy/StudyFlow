@@ -1,0 +1,118 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ca-central-1
+  TF_WORKING_DIR: terraform
+  TF_TOKEN_app_terraform_io: ${{ secrets.TF_TOKEN }}
+
+jobs:
+  api-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Prepare lockfile for npm ci
+        run: npm install --package-lock-only
+        working-directory: api
+
+      - name: Lint and test API
+        run: |
+          npm ci
+          npm run lint
+          npm test
+        working-directory: api
+
+  worker-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Prepare lockfile for npm ci
+        run: npm install --package-lock-only
+        working-directory: worker
+
+      - name: Lint and test Worker
+        run: |
+          npm ci
+          npm run lint
+          npm test
+        working-directory: worker
+
+  terraform-plan:
+    runs-on: ubuntu-latest
+    needs: [api-test, worker-test]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        run: terraform init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Create terraform.tfvars with placeholder images
+        env:
+          API_IMAGE_URI: "123456789012.dkr.ecr.ca-central-1.amazonaws.com/studyflow-prod-api:pr-placeholder"
+          WORKER_IMAGE_URI: "123456789012.dkr.ecr.ca-central-1.amazonaws.com/studyflow-prod-worker:pr-placeholder"
+        run: |
+          cat > terraform.tfvars <<EOF
+          route53_hosted_zone_id     = "${{ secrets.ROUTE53_ZONE_ID }}"
+          alb_certificate_arn        = "${{ secrets.ALB_CERT_ARN }}"
+          cloudfront_certificate_arn = "${{ secrets.CF_CERT_ARN }}"
+          mongodb_uri_secret_arn     = "${{ secrets.MONGODB_SECRET_ARN }}"
+          redis_url_secret_arn       = "${{ secrets.REDIS_SECRET_ARN }}"
+          openai_api_key_secret_arn  = "${{ secrets.OPENAI_SECRET_ARN }}"
+          auth0_domain               = "${{ secrets.AUTH0_DOMAIN }}"
+          auth0_audience             = "${{ secrets.AUTH0_AUDIENCE }}"
+          frontend_auth0_domain      = "${{ secrets.FRONTEND_AUTH0_DOMAIN }}"
+          frontend_auth0_client_id   = "${{ secrets.FRONTEND_AUTH0_CLIENT_ID }}"
+          frontend_auth0_audience    = "${{ secrets.FRONTEND_AUTH0_AUDIENCE }}"
+          api_image_uri              = "${API_IMAGE_URI}"
+          worker_image_uri           = "${WORKER_IMAGE_URI}"
+          EOF
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform plan
+        run: terraform plan -var-file=config.tfvars -var-file=terraform.tfvars -out=tfplan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Save plan output
+        run: terraform show -no-color tfplan > plan.txt
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Upload plan artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-tfplan-artifacts
+          path: |
+            ${{ env.TF_WORKING_DIR }}/tfplan
+            ${{ env.TF_WORKING_DIR }}/plan.txt

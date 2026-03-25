@@ -1,17 +1,18 @@
 import { ArrowLeft, Sparkles, Clock, CheckCircle, XCircle, Loader2, FileText, Layers, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useStudy } from '@/contexts/StudyContext';
+import { useJobs, useAllMaterials } from '@/hooks/useApi';
 import { EmptyState } from '@/components/EmptyState';
 import { Job } from '@/types';
 
 const getStatusIcon = (status: Job['status']) => {
   switch (status) {
-    case 'pending':
+    case 'queued':
       return <Clock className="w-4 h-4" />;
     case 'processing':
+    case 'retrying':
       return <Loader2 className="w-4 h-4 animate-spin" />;
     case 'done':
       return <CheckCircle className="w-4 h-4" />;
@@ -22,9 +23,10 @@ const getStatusIcon = (status: Job['status']) => {
 
 const getStatusColor = (status: Job['status']) => {
   switch (status) {
-    case 'pending':
+    case 'queued':
       return 'bg-muted text-muted-foreground';
     case 'processing':
+    case 'retrying':
       return 'bg-accent/10 text-accent';
     case 'done':
       return 'bg-success/10 text-success';
@@ -52,9 +54,14 @@ const getJobTypeLabel = (type: Job['type']) => {
 };
 
 export default function AIJobs() {
-  const { jobs, getMaterialById } = useStudy();
+  const { data: jobs = [], isLoading } = useJobs();
+  const { data: materials = [] } = useAllMaterials();
 
-  const pendingJobs = jobs.filter((j) => j.status === 'pending' || j.status === 'processing');
+  const getMaterialById = (id: string) => materials.find((m) => m.id === id);
+
+  const activeJobs = jobs.filter(
+    (j) => j.status === 'queued' || j.status === 'processing' || j.status === 'retrying'
+  );
   const completedJobs = jobs.filter((j) => j.status === 'done');
   const failedJobs = jobs.filter((j) => j.status === 'failed');
 
@@ -95,8 +102,12 @@ export default function AIJobs() {
             </div>
             <div className="flex items-center gap-2">
               {job.status === 'done' && resultMaterial && (
-                <Link to={`/app/materials/${resultMaterial.id}/${resultMaterial.type === 'flashcard_set' ? 'flashcards' : resultMaterial.type}`}>
-                  <Button variant="outline" size="sm">View Result</Button>
+                <Link
+                  to={`/app/materials/${resultMaterial.id}/${resultMaterial.type === 'flashcard_set' ? 'flashcards' : resultMaterial.type}`}
+                >
+                  <Button variant="outline" size="sm">
+                    View Result
+                  </Button>
                 </Link>
               )}
               {job.status === 'failed' && (
@@ -129,7 +140,9 @@ export default function AIJobs() {
         </div>
       </div>
 
-      {jobs.length === 0 ? (
+      {isLoading ? (
+        <div className="text-muted-foreground">Loading...</div>
+      ) : jobs.length === 0 ? (
         <EmptyState
           icon={<Sparkles className="w-8 h-8" />}
           title="No AI jobs yet"
@@ -138,14 +151,14 @@ export default function AIJobs() {
       ) : (
         <div className="space-y-8">
           {/* Active Jobs */}
-          {pendingJobs.length > 0 && (
+          {activeJobs.length > 0 && (
             <div>
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Loader2 className="w-5 h-5 animate-spin text-accent" />
-                Active Jobs ({pendingJobs.length})
+                Active Jobs ({activeJobs.length})
               </h2>
               <div className="space-y-3">
-                {pendingJobs.map(renderJobCard)}
+                {activeJobs.map(renderJobCard)}
               </div>
             </div>
           )}

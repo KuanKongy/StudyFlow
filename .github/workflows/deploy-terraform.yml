@@ -1,0 +1,170 @@
+name: Deploy Terraform
+
+on:
+  workflow_dispatch:
+    inputs:
+      rollback_sha:
+        description: "Optional commit SHA to roll back to. Leave empty to deploy latest from SSM."
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ca-central-1
+  TF_WORKING_DIR: terraform
+  TF_TOKEN_app_terraform_io: ${{ secrets.TF_TOKEN }}
+  SSM_API_IMAGE_PARAM: /studyflow/prod/api_image_uri
+  SSM_WORKER_IMAGE_PARAM: /studyflow/prod/worker_image_uri
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      api_image_uri: ${{ steps.resolve_images.outputs.api_image_uri }}
+      worker_image_uri: ${{ steps.resolve_images.outputs.worker_image_uri }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        run: terraform init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Resolve deployment image URIs
+        id: resolve_images
+        env:
+          ROLLBACK_SHA: ${{ github.event.inputs.rollback_sha }}
+        run: |
+          API_REPO="$(terraform output -raw ecr_api_repository_url)"
+          WORKER_REPO="$(terraform output -raw ecr_worker_repository_url)"
+
+          if [ -n "${ROLLBACK_SHA}" ]; then
+            API_IMAGE_URI="${API_REPO}:${ROLLBACK_SHA}"
+            WORKER_IMAGE_URI="${WORKER_REPO}:${ROLLBACK_SHA}"
+          else
+            API_IMAGE_URI="$(aws ssm get-parameter --name "${SSM_API_IMAGE_PARAM}" --query 'Parameter.Value' --output text)"
+            WORKER_IMAGE_URI="$(aws ssm get-parameter --name "${SSM_WORKER_IMAGE_PARAM}" --query 'Parameter.Value' --output text)"
+          fi
+
+          echo "api_image_uri=${API_IMAGE_URI}" >> "$GITHUB_OUTPUT"
+          echo "worker_image_uri=${WORKER_IMAGE_URI}" >> "$GITHUB_OUTPUT"
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Create terraform.tfvars
+        env:
+          API_IMAGE_URI: ${{ steps.resolve_images.outputs.api_image_uri }}
+          WORKER_IMAGE_URI: ${{ steps.resolve_images.outputs.worker_image_uri }}
+        run: |
+          cat > terraform.tfvars <<EOF
+          route53_hosted_zone_id     = "${{ secrets.ROUTE53_ZONE_ID }}"
+          alb_certificate_arn        = "${{ secrets.ALB_CERT_ARN }}"
+          cloudfront_certificate_arn = "${{ secrets.CF_CERT_ARN }}"
+          mongodb_uri_secret_arn     = "${{ secrets.MONGODB_SECRET_ARN }}"
+          redis_url_secret_arn       = "${{ secrets.REDIS_SECRET_ARN }}"
+          openai_api_key_secret_arn  = "${{ secrets.OPENAI_SECRET_ARN }}"
+          auth0_domain               = "${{ secrets.AUTH0_DOMAIN }}"
+          auth0_audience             = "${{ secrets.AUTH0_AUDIENCE }}"
+          frontend_auth0_domain      = "${{ secrets.FRONTEND_AUTH0_DOMAIN }}"
+          frontend_auth0_client_id   = "${{ secrets.FRONTEND_AUTH0_CLIENT_ID }}"
+          frontend_auth0_audience    = "${{ secrets.FRONTEND_AUTH0_AUDIENCE }}"
+          api_image_uri              = "${API_IMAGE_URI}"
+          worker_image_uri           = "${WORKER_IMAGE_URI}"
+          EOF
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform plan
+        run: terraform plan -var-file=config.tfvars -var-file=terraform.tfvars -out=tfplan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Save plan output
+        run: terraform show -no-color tfplan > plan.txt
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Upload plan artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-tfplan-artifacts
+          path: |
+            ${{ env.TF_WORKING_DIR }}/tfplan
+            ${{ env.TF_WORKING_DIR }}/plan.txt
+            ${{ env.TF_WORKING_DIR }}/terraform.tfvars
+
+  apply:
+    needs: [plan]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Download plan artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: deploy-tfplan-artifacts
+          path: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform init
+        run: terraform init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform apply
+        run: terraform apply -auto-approve tfplan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Read ECS and ALB outputs
+        id: tf_runtime
+        run: |
+          echo "cluster_name=$(terraform output -raw ecs_cluster_name)" >> "$GITHUB_OUTPUT"
+          echo "api_service_name=$(terraform output -raw api_service_name)" >> "$GITHUB_OUTPUT"
+          echo "worker_service_name=$(terraform output -raw worker_service_name)" >> "$GITHUB_OUTPUT"
+          echo "alb_dns_name=$(terraform output -raw alb_dns_name)" >> "$GITHUB_OUTPUT"
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Force ECS deployment
+        run: |
+          aws ecs update-service \
+            --cluster "${{ steps.tf_runtime.outputs.cluster_name }}" \
+            --service "${{ steps.tf_runtime.outputs.api_service_name }}" \
+            --force-new-deployment
+          aws ecs update-service \
+            --cluster "${{ steps.tf_runtime.outputs.cluster_name }}" \
+            --service "${{ steps.tf_runtime.outputs.worker_service_name }}" \
+            --force-new-deployment
+
+      - name: Wait for ECS services stable
+        run: |
+          aws ecs wait services-stable \
+            --cluster "${{ steps.tf_runtime.outputs.cluster_name }}" \
+            --services "${{ steps.tf_runtime.outputs.api_service_name }}" "${{ steps.tf_runtime.outputs.worker_service_name }}"
+
+      - name: Health check with retry
+        run: |
+          for i in {1..10}; do
+            if curl -fsS "https://${{ steps.tf_runtime.outputs.alb_dns_name }}/health"; then
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1

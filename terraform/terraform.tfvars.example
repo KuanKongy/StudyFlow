@@ -1,0 +1,18 @@
+route53_hosted_zone_id = "ZXXXXXXXXXXXXX"
+
+alb_certificate_arn        = "arn:aws:acm:ca-central-1:123456789012:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+cloudfront_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
+
+api_image_uri    = "123456789012.dkr.ecr.ca-central-1.amazonaws.com/studyflow-prod-api:latest"
+worker_image_uri = "123456789012.dkr.ecr.ca-central-1.amazonaws.com/studyflow-prod-worker:latest"
+
+mongodb_uri_secret_arn    = "arn:aws:secretsmanager:ca-central-1:123456789012:secret:studyflow/mongo"
+redis_url_secret_arn      = "arn:aws:secretsmanager:ca-central-1:123456789012:secret:studyflow/redis"
+openai_api_key_secret_arn = "arn:aws:secretsmanager:ca-central-1:123456789012:secret:studyflow/openai"
+
+auth0_domain   = "example.auth0.com"
+auth0_audience = "https://studyflow.biz/api"
+
+frontend_auth0_domain    = "example.auth0.com"
+frontend_auth0_client_id = "example-client-id"
+frontend_auth0_audience  = "https://studyflow.biz/api"

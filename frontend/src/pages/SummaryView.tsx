@@ -2,26 +2,29 @@ import { useParams, Link, Navigate } from 'react-router-dom';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { useStudy } from '@/contexts/StudyContext';
+import { useMaterial, useNote, useTopics, useGroups } from '@/hooks/useApi';
 import { MaterialBadge } from '@/components/MaterialBadge';
 import { PrivacyBadge } from '@/components/PrivacyBadge';
 
-const sampleSummaryContent = `## Key Takeaways: Binary Trees
-- A binary tree is a hierarchical data structure
-- BST maintains ordering for efficient search
-- Balanced trees: All operations O(log n)
-`;
-
 export default function SummaryView() {
   const { materialId } = useParams<{ materialId: string }>();
-  const { getMaterialById, getTopicById, getGroupById, materials } = useStudy();
 
-  const material = materialId ? getMaterialById(materialId) : null;
-  if (!material) return <Navigate to="/app/topics" replace />;
+  const { data: material } = useMaterial(materialId);
+  const { data: note } = useNote(materialId);
+  const { data: parentMaterial } = useMaterial(material?.derivedFrom);
+  const { data: topics = [] } = useTopics();
+  const { data: groups = [] } = useGroups();
 
-  const topic = material.topicId ? getTopicById(material.topicId) : null;
-  const group = topic?.groupIds?.[0] ? getGroupById(topic.groupIds[0]) : null;
-  const parentMaterial = material.derivedFrom ? materials.find((m) => m.id === material.derivedFrom) : null;
+  const topic = material?.topicId ? topics.find((t) => t.id === material.topicId) : null;
+  const group = topic?.groupIds?.[0] ? groups.find((g) => g.id === topic.groupIds[0]) : null;
+
+  if (!materialId) {
+    return <Navigate to="/app/topics" replace />;
+  }
+
+  if (!material) {
+    return null;
+  }
 
   return (
     <div className="p-6 lg:p-8 max-w-4xl mx-auto animate-fade-in">
@@ -60,7 +63,7 @@ export default function SummaryView() {
 
       <Card>
         <CardContent className="p-6">
-          <div className="whitespace-pre-wrap font-mono text-sm">{sampleSummaryContent}</div>
+          <div className="whitespace-pre-wrap font-mono text-sm">{note?.content ?? 'No content yet.'}</div>
         </CardContent>
       </Card>
     </div>

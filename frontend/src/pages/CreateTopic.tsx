@@ -8,14 +8,17 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useStudy } from '@/contexts/StudyContext';
+import { useGroups, useCreateTopic } from '@/hooks/useApi';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { CharCounter } from '@/components/CharCounter';
+import { LIMITS } from '@/lib/validation';
 
 export default function CreateTopic() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { groups, createTopic } = useStudy();
+  const { data: groups = [], isLoading: groupsLoading } = useGroups();
+  const createTopicMutation = useCreateTopic();
 
   const initialPrivacy = searchParams.get('privacy') as 'private' | 'group' | null;
   const initialGroupId = searchParams.get('groupId');
@@ -28,7 +31,6 @@ export default function CreateTopic() {
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>(
     initialGroupId ? [initialGroupId] : []
   );
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleGroupToggle = (groupId: string) => {
     setSelectedGroupIds((prev) =>
@@ -49,22 +51,20 @@ export default function CreateTopic() {
       return;
     }
 
-    setIsSubmitting(true);
-
     try {
-      const topic = createTopic(
-        title.trim(),
-        privacy,
-        privacy === 'group' ? selectedGroupIds : undefined
-      );
+      const topic = await createTopicMutation.mutateAsync({
+        title: title.trim(),
+        description: description.trim() || '',
+        groupIds: privacy === 'group' ? selectedGroupIds : [],
+      });
       toast.success('Topic created successfully!');
       navigate(`/app/topics/${topic.id}`);
     } catch {
       toast.error('Failed to create topic');
-    } finally {
-      setIsSubmitting(false);
     }
   };
+
+  const isSubmitting = createTopicMutation.isPending;
 
   return (
     <div className="p-6 lg:p-8 max-w-xl mx-auto animate-fade-in">
@@ -94,8 +94,10 @@ export default function CreateTopic() {
                 placeholder="e.g., Binary Trees"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
+                maxLength={LIMITS.TOPIC_TITLE}
                 autoFocus
               />
+              <CharCounter current={title.length} max={LIMITS.TOPIC_TITLE} />
             </div>
 
             <div className="space-y-2">
@@ -106,7 +108,9 @@ export default function CreateTopic() {
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
+                maxLength={LIMITS.TOPIC_DESCRIPTION}
               />
+              <CharCounter current={description.length} max={LIMITS.TOPIC_DESCRIPTION} />
             </div>
 
             <div className="space-y-3">
@@ -156,25 +160,33 @@ export default function CreateTopic() {
                 <p className="text-sm text-muted-foreground mb-2">
                   A topic can belong to multiple groups
                 </p>
-                <div className="space-y-2">
-                  {groups.map((group) => (
-                    <label
-                      key={group.id}
-                      className={cn(
-                        'flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
-                        selectedGroupIds.includes(group.id)
-                          ? 'border-primary bg-primary/5'
-                          : 'border-border hover:border-muted-foreground/50'
-                      )}
-                    >
-                      <Checkbox
-                        checked={selectedGroupIds.includes(group.id)}
-                        onCheckedChange={() => handleGroupToggle(group.id)}
-                      />
-                      <span className="font-medium">{group.name}</span>
-                    </label>
-                  ))}
-                </div>
+                {groupsLoading ? (
+                  <div className="space-y-2">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-12 bg-muted rounded animate-pulse" />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {groups.map((group) => (
+                      <label
+                        key={group.id}
+                        className={cn(
+                          'flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
+                          selectedGroupIds.includes(group.id)
+                            ? 'border-primary bg-primary/5'
+                            : 'border-border hover:border-muted-foreground/50'
+                        )}
+                      >
+                        <Checkbox
+                          checked={selectedGroupIds.includes(group.id)}
+                          onCheckedChange={() => handleGroupToggle(group.id)}
+                        />
+                        <span className="font-medium">{group.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

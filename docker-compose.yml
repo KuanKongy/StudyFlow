@@ -17,6 +17,7 @@ services:
       - "4000:4000"
     volumes:
       - ./api:/app
+      - api_node_modules:/app/node_modules
     env_file:
       - ./api/src/.env
     environment:
@@ -30,6 +31,7 @@ services:
     build: ./worker
     volumes:
       - ./worker:/app
+      - worker_node_modules:/app/node_modules
     env_file:
       - ./worker/.env
     environment:
@@ -41,3 +43,5 @@ services:
 
 volumes:
   mongo_data:
+  api_node_modules:
+  worker_node_modules:

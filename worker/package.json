@@ -4,7 +4,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "lint": "node -e \"console.log('worker lint: no linter configured yet')\"",
+    "test": "node -e \"console.log('worker test: no tests configured yet')\""
   },
   "keywords": [],
   "author": "",

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Bell, LogOut, User, Cpu } from 'lucide-react';
+import { LogOut, User, Cpu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -11,13 +11,15 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/contexts/AuthContext';
-import { useStudy } from '@/contexts/StudyContext';
+import { useJobs } from '@/hooks/useApi';
 
 export function TopBar() {
   const { user, logout } = useAuth();
-  const { jobs } = useStudy();
+  const { data: jobs = [] } = useJobs();
 
-  const activeJobs = jobs.filter((j) => j.status === 'pending' || j.status === 'processing');
+  const activeJobs = jobs.filter((j) =>
+    ['queued', 'pending', 'processing', 'retrying'].includes(j.status)
+  );
 
   return (
     <header className="h-14 bg-card border-b border-border px-4 flex items-center justify-between">
@@ -50,14 +52,14 @@ export function TopBar() {
                   {user?.username?.charAt(0).toUpperCase() || 'U'}
                 </AvatarFallback>
               </Avatar>
-              <span className="text-sm font-medium hidden sm:inline">{user?.username}</span>
+              <span className="text-sm font-medium hidden sm:inline">{user?.name || user?.username}</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel>
               <div className="flex flex-col">
-                <span>{user?.username}</span>
-                <span className="text-xs font-normal text-muted-foreground">{user?.email}</span>
+                <span>{user?.name || user?.username}</span>
+                <span className="text-xs font-normal text-muted-foreground">@{user?.username}</span>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />

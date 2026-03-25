@@ -1,18 +1,16 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   BookOpen,
   Users,
   FolderOpen,
-  Plus,
-  ChevronDown,
   FileText,
   FileCheck,
   Layers,
+  ChevronDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { useStudy } from '@/contexts/StudyContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import {
@@ -20,23 +18,52 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import { useGroups, useTopics, useAllMaterials } from '@/hooks/useApi';
 
 export function AppSidebar() {
   const location = useLocation();
   const { user } = useAuth();
-  const { groups, getMyTopics, getMyNotes, getMySummaries, getMyFlashcardSets } = useStudy();
+  const { data: groups = [] } = useGroups();
+  const { data: topics = [] } = useTopics();
+  const { data: materials = [] } = useAllMaterials();
+
+  const myTopics = useMemo(
+    () => (user ? topics.filter((t) => t.ownerId === user.id) : []),
+    [topics, user?.id]
+  );
+  const myNotes = useMemo(
+    () =>
+      user
+        ? materials.filter(
+            (m) => m.type === 'note' && m.ownerId === user.id
+          )
+        : [],
+    [materials, user?.id]
+  );
+  const mySummaries = useMemo(
+    () =>
+      user
+        ? materials.filter(
+            (m) => m.type === 'summary' && m.ownerId === user.id
+          )
+        : [],
+    [materials, user?.id]
+  );
+  const myFlashcardSets = useMemo(
+    () =>
+      user
+        ? materials.filter(
+            (m) => m.type === 'flashcard_set' && m.ownerId === user.id
+          )
+        : [],
+    [materials, user?.id]
+  );
+
   const [groupsOpen, setGroupsOpen] = useState(true);
   const [topicsOpen, setTopicsOpen] = useState(true);
   const [notesOpen, setNotesOpen] = useState(false);
   const [summariesOpen, setSummariesOpen] = useState(false);
   const [flashcardsOpen, setFlashcardsOpen] = useState(false);
-
-  const myTopics = user ? getMyTopics(user.id) : [];
-  const myNotes = user ? getMyNotes(user.id) : [];
-  const mySummaries = user ? getMySummaries(user.id) : [];
-  const myFlashcardSets = user ? getMyFlashcardSets(user.id) : [];
-
-  const isActive = (path: string) => location.pathname === path;
 
   return (
     <aside className="w-64 bg-sidebar text-sidebar-foreground flex flex-col min-h-screen border-r border-sidebar-border">
@@ -109,7 +136,7 @@ export function AppSidebar() {
             ))}
             <Link to="/app/topics">
               <Button variant="sidebar" className="w-full pl-8 text-sidebar-muted" size="sm">
-                View all ({myTopics.length})
+                View all ({topics.length})
               </Button>
             </Link>
           </CollapsibleContent>
@@ -140,7 +167,7 @@ export function AppSidebar() {
             ))}
             <Link to="/app/notes">
               <Button variant="sidebar" className="w-full pl-8 text-sidebar-muted" size="sm">
-                View all ({myNotes.length})
+                View all ({materials.filter(m => m.type === 'note').length})
               </Button>
             </Link>
           </CollapsibleContent>
@@ -171,7 +198,7 @@ export function AppSidebar() {
             ))}
             <Link to="/app/summaries">
               <Button variant="sidebar" className="w-full pl-8 text-sidebar-muted" size="sm">
-                View all ({mySummaries.length})
+                View all ({materials.filter(m => m.type === 'summary').length})
               </Button>
             </Link>
           </CollapsibleContent>
@@ -202,7 +229,7 @@ export function AppSidebar() {
             ))}
             <Link to="/app/flashcards">
               <Button variant="sidebar" className="w-full pl-8 text-sidebar-muted" size="sm">
-                View all ({myFlashcardSets.length})
+                View all ({materials.filter(m => m.type === 'flashcard_set').length})
               </Button>
             </Link>
           </CollapsibleContent>
