@@ -16,6 +16,7 @@ permissions:
 
 env:
   AWS_REGION: ca-central-1
+  # Repo-relative Terraform root (literal path, not a GitHub secret).
   TF_WORKING_DIR: terraform
   TF_TOKEN_app_terraform_io: ${{ secrets.TF_TOKEN }}
   SSM_API_IMAGE_PARAM: /studyflow/prod/api_image_uri
@@ -94,17 +95,25 @@ jobs:
         run: terraform show -no-color tfplan > plan.txt
         working-directory: ${{ env.TF_WORKING_DIR }}
 
+      - name: Bundle plan files for artifact
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/tf-plan-artifacts"
+          cp "${{ env.TF_WORKING_DIR }}/tfplan" \
+            "${{ env.TF_WORKING_DIR }}/plan.txt" \
+            "${{ env.TF_WORKING_DIR }}/terraform.tfvars" \
+            "$GITHUB_WORKSPACE/tf-plan-artifacts/"
+
       - name: Upload plan artifacts
         uses: actions/upload-artifact@v4
         with:
           name: deploy-tfplan-artifacts
-          path: |
-            ${{ env.TF_WORKING_DIR }}/tfplan
-            ${{ env.TF_WORKING_DIR }}/plan.txt
-            ${{ env.TF_WORKING_DIR }}/terraform.tfvars
+          path: tf-plan-artifacts/*
+          if-no-files-found: error
 
   apply:
     needs: [plan]
+    # `environment: production` = human reviews plan artifact / plan.txt, then approves here.
+    # Apply uses saved `tfplan` (not a fresh plan) so what runs matches what was planned.
     # Serialize applies only. Workflow-level concurrency blocked `plan` while a prior run
     # waited indefinitely on the production approval gate.
     concurrency:
@@ -129,7 +138,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: deploy-tfplan-artifacts
-          path: .
+          path: ${{ env.TF_WORKING_DIR }}
 
       - name: Terraform init
         run: terraform init
