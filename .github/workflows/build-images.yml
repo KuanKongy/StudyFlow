@@ -1,0 +1,93 @@
+name: Build and Publish Images
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ca-central-1
+  TF_WORKING_DIR: terraform
+  TF_TOKEN_app_terraform_io: ${{ secrets.TF_TOKEN }}
+  SSM_API_IMAGE_PARAM: /studyflow/prod/api_image_uri
+  SSM_WORKER_IMAGE_PARAM: /studyflow/prod/worker_image_uri
+  SSM_LAST_DEPLOY_PARAM: /studyflow/prod/last_deploy
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        run: terraform init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Read Terraform outputs for repositories
+        id: tf_ecr
+        run: |
+          echo "api_repo=$(terraform output -raw ecr_api_repository_url)" >> "$GITHUB_OUTPUT"
+          echo "worker_repo=$(terraform output -raw ecr_worker_repository_url)" >> "$GITHUB_OUTPUT"
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push API image
+        env:
+          API_REPO: ${{ steps.tf_ecr.outputs.api_repo }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t "$API_REPO:$IMAGE_TAG" api
+          docker tag "$API_REPO:$IMAGE_TAG" "$API_REPO:latest"
+          docker push "$API_REPO:$IMAGE_TAG"
+          docker push "$API_REPO:latest"
+
+      - name: Build and push Worker image
+        env:
+          WORKER_REPO: ${{ steps.tf_ecr.outputs.worker_repo }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t "$WORKER_REPO:$IMAGE_TAG" worker
+          docker tag "$WORKER_REPO:$IMAGE_TAG" "$WORKER_REPO:latest"
+          docker push "$WORKER_REPO:$IMAGE_TAG"
+          docker push "$WORKER_REPO:latest"
+
+      - name: Save image URIs in SSM
+        env:
+          API_IMAGE_URI: ${{ steps.tf_ecr.outputs.api_repo }}:${{ github.sha }}
+          WORKER_IMAGE_URI: ${{ steps.tf_ecr.outputs.worker_repo }}:${{ github.sha }}
+        run: |
+          aws ssm put-parameter \
+            --name "${SSM_API_IMAGE_PARAM}" \
+            --value "${API_IMAGE_URI}" \
+            --type String \
+            --overwrite
+
+          aws ssm put-parameter \
+            --name "${SSM_WORKER_IMAGE_PARAM}" \
+            --value "${WORKER_IMAGE_URI}" \
+            --type String \
+            --overwrite
+
+      - name: Save deploy metadata
+        run: |
+          aws ssm put-parameter \
+            --name "${SSM_LAST_DEPLOY_PARAM}" \
+            --value "{\"sha\":\"${{ github.sha }}\",\"actor\":\"${{ github.actor }}\",\"time\":\"${{ github.event.head_commit.timestamp }}\"}" \
+            --type String \
+            --overwrite
