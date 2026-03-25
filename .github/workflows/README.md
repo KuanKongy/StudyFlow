@@ -9,9 +9,10 @@ Documentation for Terraform and AWS setup: [`../../terraform/MANUAL_SETUP_TFC_GH
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
 | [`pr-checks.yml`](./pr-checks.yml) | Pull request to `main` | API + Worker lint/test; Terraform **plan** only (no apply). |
-| [`build-images.yml`](./build-images.yml) | Push to `main` | Build/push API and Worker Docker images to ECR; write image URIs and deploy metadata to **SSM**. |
-| [`deploy-frontend.yml`](./deploy-frontend.yml) | Push to `main` (paths: `frontend/**`) or **manual** | `npm run build`, **`aws s3 sync`** to the Terraform frontend bucket, **CloudFront invalidation**. Requires `FRONTEND_AUTH0_*` secrets for Vite env. |
-| [`deploy-terraform.yml`](./deploy-terraform.yml) | Push to **`main`** + optional **manual** (`workflow_dispatch`) | Terraform **plan** → artifacts → **`production` environment** gate (required reviewers) → **apply** saved plan → ECS force deploy → health check. |
+| [`main-branch.yml`](./main-branch.yml) | Push to **`main`** | Orchestrates **`build-images` → `deploy-frontend` → `deploy-terraform`** (Terraform only after the first two succeed). |
+| [`build-images.yml`](./build-images.yml) | **`workflow_call`** (from main pipeline) or **manual** | Build/push API and Worker Docker images to ECR; write image URIs and deploy metadata to **SSM**. |
+| [`deploy-frontend.yml`](./deploy-frontend.yml) | **`workflow_call`** (from main pipeline) or **manual** | `npm run build`, **`aws s3 sync`**, **CloudFront invalidation**. Requires **`frontend/package-lock.json`** in git and `FRONTEND_AUTH0_*` secrets. |
+| [`deploy-terraform.yml`](./deploy-terraform.yml) | **`workflow_call`** (from main pipeline) or **manual** | Terraform **plan** → artifacts → **`production` environment** gate → **apply** → ECS + health check. |
 
 **Authentication**
 
@@ -19,6 +20,13 @@ Documentation for Terraform and AWS setup: [`../../terraform/MANUAL_SETUP_TFC_GH
 - **Terraform Cloud:** Remote state only; `terraform init` / `plan` / `apply` run on the runner. Set **`TF_TOKEN`** in GitHub secrets; workflows expose it as `TF_TOKEN_app_terraform_io` in `env`.
 
 **Region:** `ca-central-1` (`AWS_REGION`).
+
+## `main-branch.yml`
+
+1. **`build-images`** and **`deploy-frontend`** run **in parallel**.
+2. **`deploy-terraform`** runs only when **both** succeed (`needs`), so SSM has the new image URIs and the S3 bucket is updated before Terraform plan/apply.
+
+Concurrency: `studyflow-main-pipeline` with `cancel-in-progress: false` so in-flight deploys are not cancelled mid-run.
 
 ## `pr-checks.yml`
 
@@ -30,8 +38,6 @@ Documentation for Terraform and AWS setup: [`../../terraform/MANUAL_SETUP_TFC_GH
 
 ## `build-images.yml`
 
-Runs on push to **`main`**.
-
 1. OIDC + `terraform init` in `terraform/`.
 2. `terraform output` for ECR repository URLs (stack must already be in state).
 3. ECR login; `docker build` / `push` for `api/` and `worker/` with tag **`github.sha`** and `latest`.
@@ -42,31 +48,29 @@ Runs on push to **`main`**.
 
 **Bootstrap:** Run an initial **`terraform apply`** (local or deploy workflow) so ECR outputs exist before the first successful `main` image build.
 
+**Note:** Image vulnerability scanning (e.g. Trivy) is not in this workflow; add a step if your process requires it.
+
 ## `deploy-frontend.yml`
 
 The S3 bucket behind CloudFront starts **empty**; Terraform does not upload the SPA. This workflow fills it.
 
-1. **`terraform init`** → read **`frontend_bucket_name`** and **`frontend_cloudfront_distribution_id`** (new Terraform outputs).
-2. **`npm ci` / `npm run build`** in `frontend/` with **`VITE_AUTH0_*`** from GitHub secrets (same values as in your Auth0 app / `terraform.tfvars` secrets).
+1. **`terraform init`** → read **`frontend_bucket_name`** and **`frontend_cloudfront_distribution_id`**.
+2. **`npm ci` / `npm run build`** in `frontend/` with **`VITE_AUTH0_*`** from GitHub secrets.
 3. **`aws s3 sync dist/`** to the bucket with **`--delete`**.
 4. **`aws cloudfront create-invalidation`** for `/*`.
 
-**First run:** Use **Actions → Deploy frontend to S3 → Run workflow** if you have not changed `frontend/` since adding this file (path filters would otherwise skip a push-only trigger).
-
-**Note:** Image vulnerability scanning (e.g. Trivy) is not in this workflow; add a step if your process requires it.
+`actions/setup-node` **npm cache** requires **`frontend/package-lock.json`** to be **committed** (it is no longer gitignored).
 
 ## `deploy-terraform.yml`
 
-Runs on **every push to `main`**. You can also **Run workflow** manually for ad-hoc deploys or rollbacks.
+**`production` environment:** In **Settings → Environments → production**, enable **Required reviewers** so the workflow pauses after **`plan`** finishes (artifacts include `plan.txt`). Approve **`apply`** to continue.
 
-**`production` environment:** In **Settings → Environments → production**, enable **Required reviewers** so the workflow pauses after **`plan`** finishes (artifacts include human-readable `plan.txt`). Approve the pending **`apply`** job to continue.
-
-**Input `rollback_sha` (`workflow_dispatch` only, optional):** If set, images are `ECR_REPO:rollback_sha`. On push (or if empty), image URIs come from **SSM** as written by `build-images.yml`.
+**Input `rollback_sha` (`workflow_dispatch` only, optional):** If set, images are `ECR_REPO:rollback_sha`. When run from the main pipeline (`workflow_call`), image URIs always come from **SSM** (written by `build-images` in the same pipeline).
 
 **Jobs**
 
-1. **`plan`** — resolve images, write `terraform.tfvars`, `terraform plan -var-file=config.tfvars -var-file=terraform.tfvars -out=tfplan`, upload `deploy-tfplan-artifacts` (includes `tfplan`, `plan.txt`, `terraform.tfvars`).
-2. **`apply`** — `environment: production` (configure reviewers under repo **Settings → Environments**), download artifact, `terraform apply -auto-approve tfplan`, force ECS deployments, wait stable, `curl https://<alb>/health`.
+1. **`plan`** — resolve images, write `terraform.tfvars`, `terraform plan … -out=tfplan`, upload `deploy-tfplan-artifacts`.
+2. **`apply`** — download artifact, `terraform apply -auto-approve tfplan`, force ECS deployments, wait stable, `curl https://<alb>/health`.
 
 ## GitHub secrets
 
@@ -74,8 +78,9 @@ Listed in [`MANUAL_SETUP_TFC_GHA.md`](../../terraform/MANUAL_SETUP_TFC_GHA.md) �
 
 ## Operations quick reference
 
-- Deploy latest images from last `main` build: run deploy workflow, leave `rollback_sha` empty.
-- Roll back: run deploy with `rollback_sha` set to a commit that was built (tag must exist in ECR).
+- **Full main deploy:** Push to `main` (runs `main-branch` pipeline).
+- **Terraform only:** Actions → **Deploy Terraform** → Run workflow; optional **`rollback_sha`**.
+- **Frontend or images only:** Run **Deploy frontend to S3** or **Build and Publish Images** manually.
 - Last recorded build metadata: `aws ssm get-parameter --name /studyflow/prod/last_deploy --query Parameter.Value --output text`
 
 ## Related

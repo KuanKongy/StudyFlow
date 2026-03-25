@@ -1,0 +1,31 @@
+# Single entry point for pushes to main: images → frontend → Terraform (plan, then gated apply).
+# Reusable workflows are also callable manually via workflow_dispatch on each file.
+
+name: Main branch pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: studyflow-main-pipeline
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-images:
+    uses: ./.github/workflows/build-images.yml
+    secrets: inherit
+
+  deploy-frontend:
+    uses: ./.github/workflows/deploy-frontend.yml
+    secrets: inherit
+
+  deploy-terraform:
+    needs: [build-images, deploy-frontend]
+    uses: ./.github/workflows/deploy-terraform.yml
+    secrets: inherit
