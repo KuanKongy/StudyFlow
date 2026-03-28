@@ -37,6 +37,10 @@ services:
     environment:
       - MONGO_URL=mongodb://mongo:27017/study
       - REDIS_URL=redis://redis:6379
+      # Optional: point to local 429 stub for tests/redbar/ai-001-backoff.test.mjs (e.g. http://host.docker.internal:19723/v1)
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - mongo
       - redis

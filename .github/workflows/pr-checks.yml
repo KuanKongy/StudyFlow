@@ -96,6 +96,7 @@ jobs:
           frontend_auth0_domain      = "${{ secrets.FRONTEND_AUTH0_DOMAIN }}"
           frontend_auth0_client_id   = "${{ secrets.FRONTEND_AUTH0_CLIENT_ID }}"
           frontend_auth0_audience    = "${{ secrets.FRONTEND_AUTH0_AUDIENCE }}"
+          observability_alert_email  = "${{ secrets.OBSERVABILITY_ALERT_EMAIL }}"
           api_image_uri              = "${API_IMAGE_URI}"
           worker_image_uri           = "${WORKER_IMAGE_URI}"
           EOF

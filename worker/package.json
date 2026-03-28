@@ -4,13 +4,18 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon index.js",
-    "lint": "node -e \"console.log('worker lint: no linter configured yet')\"",
+    "lint": "eslint .",
     "test": "node -e \"console.log('worker test: no tests configured yet')\""
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
+  "devDependencies": {
+    "@eslint/js": "^9.32.0",
+    "eslint": "^9.32.0",
+    "globals": "^15.15.0"
+  },
   "dependencies": {
     "dotenv": "^17.2.3",
     "mongodb": "^7.0.0",

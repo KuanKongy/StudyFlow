@@ -18,7 +18,7 @@ Two var-files are used during CI/CD:
 - `config.tfvars` (committed): source-of-truth for stable non-secret configuration.
 - `terraform.tfvars` (generated in workflow): dynamic/manual-setup values.
 
-`terraform.tfvars` is generated at runtime from GitHub secrets and resolved image URIs.
+`terraform.tfvars` is generated at runtime from GitHub secrets and resolved image URIs (including optional `observability_alert_email` from secret `OBSERVABILITY_ALERT_EMAIL`).
 
 ## 3) Required GitHub secrets
 
@@ -38,6 +38,10 @@ Add these repository secrets:
 - `FRONTEND_AUTH0_CLIENT_ID`
 - `FRONTEND_AUTH0_AUDIENCE`
 
+### Optional GitHub secrets
+
+- **`OBSERVABILITY_ALERT_EMAIL`** — Email address for Terraform variable `observability_alert_email`. The deploy and PR Terraform jobs write this into generated `terraform.tfvars`. If you **omit** this secret or leave it empty, Terraform still creates the SNS topic and CloudWatch alarms, but **no** SNS email subscription is created. If you **set** it, Terraform creates an email subscription; the recipient must **confirm** it (email link or SNS console) before notifications are delivered. See also `terraform.tfvars.example`.
+
 ## 4) GitHub OIDC role in AWS
 
 - Create an IAM OIDC provider for GitHub (if not already present).
@@ -52,7 +56,7 @@ Create **one** customer-managed IAM policy from [`terraform/iam/github-oidc-ci-p
 2. IAM → Policies → Create policy → JSON tab → paste the contents.
 3. Attach that policy to the GitHub OIDC role referenced by `AWS_ROLE_TO_ASSUME`.
 
-The policy covers all services managed by this Terraform stack (VPC, ALB, ECR, ECS, autoscaling, CloudFront, S3, Route53, CloudWatch Logs, IAM, ACM read-only), scoped Secrets Manager reads for app secrets, and scoped SSM for deploy parameters.
+The policy covers all services managed by this Terraform stack (VPC, ALB, ECR, ECS, autoscaling, CloudFront, S3, Route53, CloudWatch Logs and alarms/dashboards, SNS for observability alerts, IAM, ACM read-only), scoped Secrets Manager reads for app secrets, and scoped SSM for deploy parameters.
 
 Notes:
 

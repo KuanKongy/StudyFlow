@@ -16,3 +16,9 @@ auth0_audience = "https://studyflow.biz/api"
 frontend_auth0_domain    = "example.auth0.com"
 frontend_auth0_client_id = "example-client-id"
 frontend_auth0_audience  = "https://studyflow.biz/api"
+
+# Optional CloudWatch / SNS: alarm notifications for the observability module.
+# Use "" to create the SNS topic and alarms only (no email subscription).
+# Set to an address and, after terraform apply, confirm the SNS subscription in email / AWS console.
+observability_alert_email = ""
+# observability_alert_email = "ops@example.com"

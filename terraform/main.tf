@@ -105,3 +105,14 @@ module "route53" {
   alb_dns_name                = module.alb.alb_dns_name
   alb_zone_id                 = module.alb.alb_zone_id
 }
+
+module "observability" {
+  source = "./modules/observability"
+
+  name_prefix             = local.name_prefix
+  aws_region              = var.aws_region
+  alb_arn_suffix          = module.alb.alb_arn_suffix
+  target_group_arn_suffix = module.alb.target_group_arn_suffix
+  alert_email             = var.observability_alert_email
+  tags                    = local.common_tags
+}
