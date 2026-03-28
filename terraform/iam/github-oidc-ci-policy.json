@@ -15,6 +15,7 @@
         "cloudfront:*",
         "s3:*",
         "cloudwatch:*",
+        "sns:*",
         "sts:GetCallerIdentity",
         "acm:DescribeCertificate",
         "acm:ListCertificates",

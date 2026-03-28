@@ -1,4 +1,5 @@
 import express from "express";
+import { randomUUID } from "node:crypto";
 import { MongoClient, ObjectId } from "mongodb";
 import { createClient } from "redis";
 import { auth } from "express-oauth2-jwt-bearer";
@@ -6,8 +7,26 @@ import cors from "cors";
 import dotenv from "dotenv";
 dotenv.config();
 
+function log(level, msg, fields = {}) {
+  console.log(
+    JSON.stringify({
+      ts: new Date().toISOString(),
+      level,
+      service: "api",
+      msg,
+      ...fields,
+    })
+  );
+}
+
 const app = express();
 app.use(cors());
+app.use((req, res, next) => {
+  const id = req.headers["x-request-id"] || randomUUID();
+  req.requestId = id;
+  res.setHeader("x-request-id", id);
+  next();
+});
 app.use(express.json());
 
 const mongoUrl = process.env.MONGO_URL;
@@ -61,7 +80,7 @@ await GroupAuditLog.createIndex({ groupId: 1 });
 await Users.createIndex({ authId: 1 }, { unique: true });
 await Users.createIndex({ username: 1 }, { unique: true, sparse: true });
 
-console.log("API connected to Mongo + Redis");
+log("info", "api_connected");
 
 // --- Shared username validation (used by user creation AND profile update) ---
 const USERNAME_REGEX = /^[a-zA-Z0-9._]{1,30}$/;
@@ -113,7 +132,7 @@ const aiRateLimiter = async (req, res, next) => {
       return res.status(429).json({ error: "Rate limit exceeded. Max 10 AI requests per hour." });
     }
   } catch (err) {
-    console.error("Rate limiter error:", err);
+    log("error", "rate_limiter_error", { err: err?.message || String(err) });
   }
   next();
 };
@@ -126,7 +145,7 @@ const aiCircuitBreaker = async (req, res, next) => {
       return res.status(503).json({ error: "AI processing temporarily unavailable" });
     }
   } catch (err) {
-    console.error("Circuit breaker check error:", err);
+    log("error", "circuit_breaker_check_error", { err: err?.message || String(err) });
   }
   next();
 };
@@ -189,7 +208,7 @@ app.get("/api/me", async (req, res) => {
     if (userInfoRes.ok) {
       userInfo = await userInfoRes.json();
     }
-  } catch (_) { /* /userinfo unavailable — use fallback */ }
+  } catch { /* /userinfo unavailable — use fallback */ }
 
   const rawUsername = userInfo.email?.split("@")[0] ?? userInfo.nickname ?? authId.split("|").pop() ?? "user";
   const username = await generateUniqueUsername(rawUsername, authId);
@@ -262,7 +281,7 @@ app.delete("/api/account", async (req, res) => {
         if (job && job.ownerId === userId) {
           await redis.lRem("queue:jobs", 1, raw);
         }
-      } catch (_) { /* skip malformed entries */ }
+      } catch { /* skip malformed entries */ }
     }
 
     const userMaterials = await StudyMaterials.find({ ownerId: userId }).toArray();
@@ -286,7 +305,10 @@ app.delete("/api/account", async (req, res) => {
 
     res.json({ ok: true, message: "Account deleted" });
   } catch (error) {
-    console.error("DELETE /api/account ERROR:", error);
+    log("error", "delete_account_error", {
+      requestId: req.requestId,
+      err: error?.message || String(error),
+    });
     res.status(500).json({ error: "Account deletion failed" });
   }
 });
@@ -333,6 +355,7 @@ app.post("/api/materials/:id/flashcards", validateId, aiRateLimiter, aiCircuitBr
     status: "queued",
     retries: 0,
     createdAt: Date.now(),
+    requestId: req.requestId,
   };
   const { insertedId } = await Jobs.insertOne(job);
   await redis.lPush("queue:jobs", JSON.stringify({ jobId: insertedId.toString() }));
@@ -357,6 +380,7 @@ app.post("/api/materials/:id/summary", validateId, aiRateLimiter, aiCircuitBreak
     status: "queued",
     retries: 0,
     createdAt: Date.now(),
+    requestId: req.requestId,
   };
   const { insertedId } = await Jobs.insertOne(job);
   await redis.lPush("queue:jobs", JSON.stringify({ jobId: insertedId.toString() }));
@@ -432,7 +456,10 @@ app.get("/api/materials", async (req, res) => {
     }));
     res.json(result);
   } catch (error) {
-    console.error("GET /api/materials error:", error);
+    log("error", "get_materials_error", {
+      requestId: req.requestId,
+      err: error?.message || String(error),
+    });
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -496,7 +523,10 @@ app.put("/api/materials/:id/note", validateId, async (req, res) => {
     }
     res.json([note, material]);
   } catch (error) {
-    console.error("PUT /materials/:id/note ERROR:", error);
+    log("error", "put_note_error", {
+      requestId: req.requestId,
+      err: error?.message || String(error),
+    });
     res.status(500).json({ error: "An internal server error occurred." });
   }
 });
@@ -524,7 +554,10 @@ app.delete("/api/materials/:id/note", validateId, async (req, res) => {
     }
     res.json([note, material]);
   } catch (error) {
-    console.error("DEL /materials/:id/note ERROR:", error);
+    log("error", "delete_note_error", {
+      requestId: req.requestId,
+      err: error?.message || String(error),
+    });
     res.status(500).json({ error: "An internal server error occurred." });
   }
 });
@@ -593,7 +626,10 @@ app.get("/api/flashcard-sets/:id/cards", async (req, res) => {
     await redis.set(cacheKey, JSON.stringify(cards), { EX: 3600 });
     res.json(cards);
   } catch (error) {
-    console.error("GET cards error:", error);
+    log("error", "get_cards_error", {
+      requestId: req.requestId,
+      err: error?.message || String(error),
+    });
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -930,9 +966,7 @@ app.delete("/api/topics/:id", validateId, async (req, res) => {
     await FlashcardSets.deleteMany({ materialId: { $in: materialIds } });
     await Notes.deleteMany({ materialId: { $in: materialIds } });
     await StudyMaterials.deleteMany({ topicId: topicOid });
-    for (const mid of materialIds) {
-      await redis.del(`topic:${topicId}:materials`);
-    }
+    await redis.del(`topic:${topicId}:materials`);
   }
   await Topics.deleteOne({ _id: topicOid });
   await redis.del(`topic:${topicId}:materials`);
@@ -966,7 +1000,11 @@ app.post("/api/topics/batch-delete", async (req, res) => {
       await redis.del(`topic:${id}:materials`);
       deleted++;
     } catch (e) {
-      console.error(`batch-delete topic ${id} error:`, e);
+      log("error", "batch_delete_topic_error", {
+        requestId: req.requestId,
+        topicId: id,
+        err: e?.message || String(e),
+      });
     }
   }
   res.json({ deleted });
@@ -1013,7 +1051,10 @@ app.delete("/api/materials/:id", validateId, async (req, res) => {
     await deleteMaterialCascade(materialId);
     res.json({ ok: true });
   } catch (error) {
-    console.error("DELETE /api/materials/:id ERROR:", error);
+    log("error", "delete_material_error", {
+      requestId: req.requestId,
+      err: error?.message || String(error),
+    });
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -1037,5 +1078,5 @@ app.post("/api/materials/batch-delete", async (req, res) => {
 });
 
 app.listen(4000, () => {
-  console.log("API listening on 4000");
+  log("info", "api_listening", { port: 4000 });
 });

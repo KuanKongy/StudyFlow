@@ -160,6 +160,12 @@ variable "log_retention_days" {
   default = 30
 }
 
+variable "observability_alert_email" {
+  type        = string
+  default     = ""
+  description = "Optional email for SNS subscription on CloudWatch alarms (confirm subscription in AWS console)"
+}
+
 variable "tags" {
   type    = map(string)
   default = {}

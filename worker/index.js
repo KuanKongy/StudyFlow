@@ -4,7 +4,20 @@ import OpenAI from "openai";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+  ...(process.env.OPENAI_BASE_URL ? { baseURL: process.env.OPENAI_BASE_URL } : {}),
 });
+
+function log(level, msg, fields = {}) {
+  console.log(
+    JSON.stringify({
+      ts: new Date().toISOString(),
+      level,
+      service: "worker",
+      msg,
+      ...fields,
+    })
+  );
+}
 
 const mongoUrl = process.env.MONGO_URL;
 const redisUrl = process.env.REDIS_URL;
@@ -30,37 +43,40 @@ await Jobs.createIndex({ ownerId: 1 });
 await Jobs.createIndex({ status: 1 });
 await Flashcards.createIndex({ setId: 1 });
 
-console.log("Worker connected to Mongo + Redis");
+log("info", "worker_connected");
 
 const MAX_RETRIES = 3;
-let consecutive429s = 0;
+const openai429State = { consecutive429s: 0 };
 
 async function callOpenAI(messages, temperature, job) {
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages,
-      temperature,
+      temperature
     });
-    consecutive429s = 0;
+    openai429State.consecutive429s = 0;
     return response;
   } catch (err) {
     if (err.status === 429) {
-      consecutive429s++;
+      openai429State.consecutive429s++;
       const retries = (job.retries || 0) + 1;
       await Jobs.updateOne({ _id: job._id }, { $set: { retries } });
 
-      // ai-002: trip circuit breaker after 3 consecutive 429s
-      if (consecutive429s >= 3) {
+      if (openai429State.consecutive429s >= 3) {
         await redis.set("circuit-breaker:openai", "1", { EX: 60 });
-        console.warn("Circuit breaker TRIPPED for OpenAI (60s cooldown)");
+        log("warn", "circuit_breaker_tripped", { jobId: job._id?.toString?.() });
       }
 
-      // ai-001: exponential backoff + re-queue
       if (retries < MAX_RETRIES) {
         await Jobs.updateOne({ _id: job._id }, { $set: { status: "retrying" } });
         const delay = Math.pow(2, retries) * 1000;
-        console.log(`[ai-001] Re-queuing job ${job._id} after ${delay}ms (retry ${retries}/${MAX_RETRIES})`);
+        log("info", "openai_429_requeue", {
+          jobId: job._id?.toString?.(),
+          delayMs: delay,
+          retries,
+          maxRetries: MAX_RETRIES,
+        });
         await new Promise(r => setTimeout(r, delay));
         await redis.lPush("queue:jobs", JSON.stringify({ jobId: job._id.toString() }));
         return null;
@@ -81,12 +97,12 @@ const handlers = {
 };
 
 while (true) {
-  console.log("Worker waiting...");
+  log("info", "worker_waiting");
   const job = await redis.brPop("queue:jobs", 0);
   if (!job) continue;
 
   const { jobId } = JSON.parse(job.element);
-  console.log("Worker got job:", jobId);
+  log("info", "job_received", { jobId });
 
   const jobObjectId = new ObjectId(jobId);
   const jobDoc = await Jobs.findOne({ _id: jobObjectId });
@@ -95,7 +111,7 @@ while (true) {
   // data-005: skip jobs for deleted users
   const userExists = await Users.findOne({ authId: jobDoc.ownerId });
   if (!userExists) {
-    console.log(`Skipping job ${jobId} — user ${jobDoc.ownerId} deleted`);
+    log("info", "job_skipped_user_deleted", { jobId, ownerId: jobDoc.ownerId });
     await Jobs.updateOne(
       { _id: jobDoc._id },
       { $set: { status: "failed", error: "User deleted" } }
@@ -105,7 +121,7 @@ while (true) {
 
   const handler = handlers[jobDoc.type];
   if (!handler) {
-    console.error(`Unknown job type: ${jobDoc.type}`);
+    log("error", "unknown_job_type", { jobId, type: jobDoc.type });
     await Jobs.updateOne(
       { _id: jobDoc._id },
       { $set: { status: "failed", error: `Unknown job type: ${jobDoc.type}` } }
@@ -116,14 +132,18 @@ while (true) {
   try {
     await handler(jobDoc);
   } catch (err) {
-    console.error(err);
+    log("error", "job_handler_error", {
+      jobId,
+      err: err?.message || String(err),
+      requestId: jobDoc.requestId,
+    });
     await Jobs.updateOne(
       { _id: jobDoc._id },
       { $set: { status: "failed", error: err.message } }
     );
   }
 
-  console.log("Job completed:", jobId);
+  log("info", "job_completed", { jobId, requestId: jobDoc.requestId });
 }
 
 async function handleGenerateFlashcards(job) {
@@ -131,6 +151,11 @@ async function handleGenerateFlashcards(job) {
     { _id: job._id },
     { $set: { status: "processing", startedAt: Date.now() } }
   );
+  log("info", "flashcards_job_processing", {
+    jobId: job._id?.toString?.(),
+    requestId: job.requestId,
+    inputMaterialId: job.inputMaterialId?.toString?.(),
+  });
 
   const note = await Notes.findOne({ materialId: job.inputMaterialId });
   if (!note) {
@@ -141,7 +166,7 @@ async function handleGenerateFlashcards(job) {
     return;
   }
 
-  if (note.content.length > 50_000) {
+  if (typeof note.content === "string" && note.content.length > 50_000) {
     await Jobs.updateOne(
       { _id: job._id },
       { $set: { status: "failed", error: "Note too large to summarize" } }
@@ -250,7 +275,7 @@ async function handleGenerateSummary(job) {
       return;
     }
 
-    if (note.content.length > 50_000) {
+    if (typeof note.content === "string" && note.content.length > 50_000) {
       await Jobs.updateOne(
         { _id: job._id },
         { $set: { status: "failed", error: "Note too large to summarize" } }
@@ -309,7 +334,11 @@ async function handleGenerateSummary(job) {
       { $set: { status: "done", resultMaterialId: materialId, finishedAt: Date.now() } }
     );
   } catch (err) {
-    console.error("Summary Job Error:", err);
+    log("error", "summary_job_error", {
+      jobId: job._id?.toString?.(),
+      err: err?.message || String(err),
+      requestId: job.requestId,
+    });
     await Jobs.updateOne(
       { _id: job._id },
       { $set: { status: "failed", error: err.message } }

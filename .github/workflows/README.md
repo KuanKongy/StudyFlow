@@ -76,7 +76,7 @@ The S3 bucket behind CloudFront starts **empty**; Terraform does not upload the 
 
 ## GitHub secrets
 
-Listed in [`MANUAL_SETUP_TFC_GHA.md`](../../terraform/MANUAL_SETUP_TFC_GHA.md) §3. Terraform jobs need at least `TF_TOKEN`, `AWS_ROLE_TO_ASSUME`, and the variables used in generated `terraform.tfvars`.
+Listed in [`MANUAL_SETUP_TFC_GHA.md`](../../terraform/MANUAL_SETUP_TFC_GHA.md) §3. Terraform jobs need at least `TF_TOKEN`, `AWS_ROLE_TO_ASSUME`, and the variables used in generated `terraform.tfvars`. Optional: **`OBSERVABILITY_ALERT_EMAIL`** for CloudWatch/SNS alarm email (see manual setup §3).
 
 ## Operations quick reference
 

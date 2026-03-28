@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon src/index.js",
-    "lint": "node -e \"console.log('api lint: no linter configured yet')\"",
+    "lint": "eslint .",
     "test": "node -e \"console.log('api test: no tests configured yet')\""
   },
   "keywords": [],
@@ -21,6 +21,9 @@
     "redis": "^5.10.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.32.0",
+    "eslint": "^9.32.0",
+    "globals": "^15.15.0",
     "@types/express": "^5.0.6",
     "@types/node": "^25.0.9",
     "tsx": "^4.21.0",
