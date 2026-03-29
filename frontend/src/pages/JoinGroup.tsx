@@ -79,7 +79,7 @@ export default function JoinGroup() {
         </Link>
         <div>
           <h1 className="text-2xl font-bold">Join a Group</h1>
-          <p className="text-muted-foreground">Two ways to join: enter a code for private groups, or browse and join public ones below.</p>
+          <p className="text-muted-foreground">Enter a code for private groups, or browse and join public ones.</p>
         </div>
       </div>
 
@@ -93,9 +93,6 @@ export default function JoinGroup() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              For private (unlisted) groups — the group owner shares the code with you.
-            </p>
             <div className="space-y-2">
               <Label htmlFor="joinCode">Enter Join Code</Label>
               <Input
@@ -126,7 +123,7 @@ export default function JoinGroup() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-4">
-              Public groups have no join code and appear in the list below — browse and join instantly.
+            Public groups are open to everyone. Browse and join instantly.
             </p>
             <div className="flex items-center gap-2 text-sm">
               <Badge variant="secondary">{publicGroups.length} available</Badge>

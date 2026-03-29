@@ -11,7 +11,8 @@ interface AuthContextType {
   logout: () => void;
   getToken: TokenGetter;
   refreshUser: () => Promise<void>;
-  error: string | null;
+  /** True when sign-in failed; UI should show a static message only (never raw Auth0 errors). */
+  error: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -78,8 +79,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, [auth0IsAuth, auth0Loading, getToken]);
 
-  const errorMsg = auth0Error?.message ?? profileError ?? null;
-  const stillLoading = auth0Loading || profileLoading || (auth0IsAuth && !user && !errorMsg);
+  useEffect(() => {
+    if (auth0Error) console.error('Auth0 error:', auth0Error);
+  }, [auth0Error]);
+
+  const authFailed = auth0Error != null || profileError != null;
+  const stillLoading =
+    auth0Loading || profileLoading || (auth0IsAuth && !user && !authFailed);
 
   return (
     <AuthContext.Provider
@@ -91,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         getToken,
         refreshUser,
-        error: errorMsg,
+        error: authFailed,
       }}
     >
       {children}

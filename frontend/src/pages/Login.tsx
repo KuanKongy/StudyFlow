@@ -4,6 +4,12 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
+/** Static copy only — never show Auth0 / token errors to users. */
+const SIGN_IN_AGAIN_COPY = {
+  title: 'Please sign in again',
+  body: 'Your session could not be restored. Tap Get started below.',
+} as const;
+
 export default function Login() {
   const { isAuthenticated, login, isLoading, error } = useAuth();
 
@@ -65,9 +71,12 @@ export default function Login() {
             <p className="text-muted-foreground">Organize notes, summaries, and flashcards with your study group.</p>
           </div>
           {error && (
-            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-              <p className="font-medium mb-1">Authentication error</p>
-              <p>{error}</p>
+            <div
+              role="alert"
+              className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-left text-sm text-foreground"
+            >
+              <p className="font-medium text-amber-950 dark:text-amber-100 mb-1">{SIGN_IN_AGAIN_COPY.title}</p>
+              <p className="text-muted-foreground leading-snug">{SIGN_IN_AGAIN_COPY.body}</p>
             </div>
           )}
           <Button onClick={login} variant="hero" size="xl" className="w-full">Get started</Button>
