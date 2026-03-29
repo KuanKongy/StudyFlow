@@ -42,7 +42,7 @@ export function TosContent() {
       </ul>
 
       <h2>6. Account Deletion</h2>
-      <p>You may delete your account at any time. All your data is removed from our database, cache, job queue, and group memberships. Your Auth0 identity is deleted. Data already processed by OpenAI is outside our control.</p>
+      <p>You may delete your account at any time. All StudyFlow-managed data is removed from our database, cache, job queue, and group memberships. Your Auth0 identity is retained so you can sign in again later without repeating onboarding. Data already processed by OpenAI is outside our control.</p>
 
       <h2>7. Group Rules</h2>
       <ul>

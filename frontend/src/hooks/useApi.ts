@@ -388,3 +388,15 @@ export function useGenerateSummary() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
   });
 }
+
+export function useRetryJob() {
+  const getToken = useToken();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ type, inputMaterialId }: { type: import('@/types').JobType; inputMaterialId: string }) =>
+      type === 'GENERATE_FLASHCARDS'
+        ? api.generateFlashcards(getToken, inputMaterialId)
+        : api.generateSummary(getToken, inputMaterialId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+  });
+}

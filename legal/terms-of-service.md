@@ -46,7 +46,7 @@ StudyFlow uses OpenAI to generate summaries and flashcards from your notes. By u
 ## 6. Account Deletion
 
 - You may delete your account at any time from the Profile page.
-- Deletion removes all your data from our database (MongoDB), cache (Redis), job queue, and group memberships. Your Auth0 identity is also deleted.
+- Deletion removes all StudyFlow-managed data from our database (MongoDB), cache (Redis), job queue, and group memberships. Your Auth0 identity is retained so you can sign in again later without repeating onboarding.
 - **Limitation:** Data already processed by OpenAI before deletion is outside our control and cannot be recalled. This caveat is an honest disclosure, not a loophole.
 
 ## 7. Group Rules

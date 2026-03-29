@@ -165,13 +165,43 @@ async function canAccessMaterial(material, userId) {
   return !!group;
 }
 
+async function canAccessTopic(topic, userId) {
+  if (!topic) return false;
+  if (topic.ownerId === userId) return true;
+  if (!topic.groupIds || topic.groupIds.length === 0) return false;
+  const group = await Groups.findOne({
+    _id: { $in: topic.groupIds },
+    memberIds: userId
+  });
+  return !!group;
+}
+
+async function getMaterialForFlashcardSet(setId) {
+  const set = await FlashcardSets.findOne({ _id: setId });
+  if (!set) return { set: null, material: null };
+  const material = await StudyMaterials.findOne({ _id: set.materialId });
+  return { set, material };
+}
+
+async function getFlashcardAccessContext(cardId) {
+  const card = await Flashcards.findOne({ _id: cardId });
+  if (!card) return { card: null, set: null, material: null };
+  const set = await FlashcardSets.findOne({ _id: card.setId });
+  if (!set) return { card, set: null, material: null };
+  const material = await StudyMaterials.findOne({ _id: set.materialId });
+  return { card, set, material };
+}
+
 // Health Check
 app.get("/health", (req, res) => {
   res.json({ ok: true });
 });
 
-// Test endpoint
+// Dev-only test endpoint (no JWT) — disabled in production
 app.post("/enqueue", async (req, res) => {
+  if (process.env.NODE_ENV === "production") {
+    return res.status(404).json({ error: "Not found" });
+  }
   const { insertedId } = await Jobs.insertOne({
     type: "TEST",
     status: "queued",
@@ -320,6 +350,14 @@ app.post("/api/notes", async (req, res) => {
   if (!content || !title || !topicId) {
     return res.status(400).json({ error: "missing data required" });
   }
+  const topicDoc = await Topics.findOne({ _id: new ObjectId(topicId) });
+  if (!topicDoc) {
+    return res.status(404).json({ error: "Topic not found" });
+  }
+  const topicOk = await canAccessTopic(topicDoc, req.auth.payload.sub);
+  if (!topicOk) {
+    return res.status(403).json({ error: "Forbidden — you do not have access to this topic" });
+  }
   const material = {
     type: "note",
     title,
@@ -391,13 +429,19 @@ app.post("/api/materials/:id/summary", validateId, aiRateLimiter, aiCircuitBreak
 
 app.get("/api/jobs/:id", async (req, res) => {
   const jobId = req.params.id;
+  if (!ObjectId.isValid(jobId)) {
+    return res.status(400).json({ error: "Invalid job id" });
+  }
+  const job = await Jobs.findOne({ _id: new ObjectId(jobId) });
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  if (job.ownerId !== req.auth.payload.sub) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
   const cacheKey = `job:${jobId}`;
   const cachedStatus = await redis.get(cacheKey);
   if (cachedStatus) {
     return res.json({ status: cachedStatus });
   }
-  const job = await Jobs.findOne({ _id: new ObjectId(jobId) });
-  if (!job) return res.status(404).json({ error: "Job not found" });
   await redis.set(cacheKey, job.status, { EX: 30 });
   res.json({ status: job.status });
 });
@@ -464,8 +508,12 @@ app.get("/api/materials", async (req, res) => {
   }
 });
 
-app.get("/api/topics/:id/materials", async (req, res) => {
+app.get("/api/topics/:id/materials", validateId, async (req, res) => {
   const topicId = new ObjectId(req.params.id);
+  const topic = await Topics.findOne({ _id: topicId });
+  if (!topic) return res.status(404).json({ error: "Topic not found" });
+  const allowed = await canAccessTopic(topic, req.auth.payload.sub);
+  if (!allowed) return res.status(403).json({ error: "Forbidden" });
   const key = `topic:${topicId}:materials`;
   const cached = await redis.get(key);
   if (cached) return res.json(JSON.parse(cached));
@@ -568,6 +616,14 @@ app.post("/api/flashcard-sets", async (req, res) => {
   const { title, topicId, cards } = req.body;
   if (!title || !topicId) return res.status(400).json({ error: "title and topicId required" });
   const userId = req.auth.payload.sub;
+  const topicDoc = await Topics.findOne({ _id: new ObjectId(topicId) });
+  if (!topicDoc) {
+    return res.status(404).json({ error: "Topic not found" });
+  }
+  const topicOk = await canAccessTopic(topicDoc, userId);
+  if (!topicOk) {
+    return res.status(403).json({ error: "Forbidden — you do not have access to this topic" });
+  }
 
   const material = {
     type: "flashcardSet",
@@ -601,7 +657,12 @@ app.post("/api/flashcard-sets", async (req, res) => {
 });
 
 app.get("/api/materials/:id/flashcard-set", validateId, async (req, res) => {
-  const set = await FlashcardSets.findOne({ materialId: new ObjectId(req.params.id) });
+  const materialId = new ObjectId(req.params.id);
+  const material = await StudyMaterials.findOne({ _id: materialId });
+  if (!material) return res.status(404).json({ error: "Material not found" });
+  const allowed = await canAccessMaterial(material, req.auth.payload.sub);
+  if (!allowed) return res.status(403).json({ error: "Forbidden" });
+  const set = await FlashcardSets.findOne({ materialId });
   res.json(set);
 });
 
@@ -609,6 +670,11 @@ app.put("/api/materials/:id/flashcard-set", validateId, async (req, res) => {
   const flashcardsetId = new ObjectId(req.params.id);
   const { materialId } = req.body;
   if (!materialId) return res.status(400).json({ error: "Missing materialId" });
+  const { set, material } = await getMaterialForFlashcardSet(flashcardsetId);
+  if (!set) return res.status(404).json({ error: "Flashcard set not found" });
+  if (!material) return res.status(404).json({ error: "Material not found" });
+  const allowed = await canAccessMaterial(material, req.auth.payload.sub);
+  if (!allowed) return res.status(403).json({ error: "Forbidden" });
   const flashcardset = await FlashcardSets.updateOne(
     { _id: flashcardsetId },
     { $set: { materialId } }
@@ -616,10 +682,15 @@ app.put("/api/materials/:id/flashcard-set", validateId, async (req, res) => {
   res.json(flashcardset);
 });
 
-app.get("/api/flashcard-sets/:id/cards", async (req, res) => {
+app.get("/api/flashcard-sets/:id/cards", validateId, async (req, res) => {
   const setId = req.params.id;
   const cacheKey = `set:${setId}:cards`;
   try {
+    const { set, material } = await getMaterialForFlashcardSet(new ObjectId(setId));
+    if (!set) return res.status(404).json({ error: "Flashcard set not found" });
+    if (!material) return res.status(404).json({ error: "Material not found" });
+    const allowed = await canAccessMaterial(material, req.auth.payload.sub);
+    if (!allowed) return res.status(403).json({ error: "Forbidden" });
     const cachedCards = await redis.get(cacheKey);
     if (cachedCards) return res.json(JSON.parse(cachedCards));
     const cards = await Flashcards.find({ setId: new ObjectId(setId) }).toArray();
@@ -638,6 +709,11 @@ app.put("/api/materials/:id/cards", validateId, async (req, res) => {
   const { setId, question, answer } = req.body;
   const flashcardId = req.params.id;
   if (!setId && !question && !answer) return res.status(400).json({ error: "Need to include one of: setId, question, or answer" });
+  const { card, set, material } = await getFlashcardAccessContext(new ObjectId(flashcardId));
+  if (!card) return res.status(404).json({ error: "Flashcard not found" });
+  if (!set || !material) return res.status(404).json({ error: "Flashcard set or material not found" });
+  const allowed = await canAccessMaterial(material, req.auth.payload.sub);
+  if (!allowed) return res.status(403).json({ error: "Forbidden" });
   const updateDoc = { $set: { updatedAt: Date.now() } };
   if (setId) updateDoc.$set.setId = setId;
   if (question) updateDoc.$set.question = question;
@@ -657,12 +733,15 @@ app.put("/api/materials/:id/cards", validateId, async (req, res) => {
   res.json(result);
 });
 
-app.post("/api/flashcard-sets/:id/cards", async (req, res) => {
+app.post("/api/flashcard-sets/:id/cards", validateId, async (req, res) => {
   const setId = req.params.id;
   const { question, answer } = req.body;
   if (!question || !answer) return res.status(400).json({ error: "question and answer required" });
-  const set = await FlashcardSets.findOne({ _id: new ObjectId(setId) });
+  const { set, material } = await getMaterialForFlashcardSet(new ObjectId(setId));
   if (!set) return res.status(404).json({ error: "Flashcard set not found" });
+  if (!material) return res.status(404).json({ error: "Material not found" });
+  const allowed = await canAccessMaterial(material, req.auth.payload.sub);
+  if (!allowed) return res.status(403).json({ error: "Forbidden" });
   const card = {
     setId: new ObjectId(setId),
     question,
@@ -677,8 +756,11 @@ app.post("/api/flashcard-sets/:id/cards", async (req, res) => {
 
 app.delete("/api/flashcards/:id", validateId, async (req, res) => {
   const cardId = req.params.id;
-  const card = await Flashcards.findOne({ _id: new ObjectId(cardId) });
+  const { card, set, material } = await getFlashcardAccessContext(new ObjectId(cardId));
   if (!card) return res.status(404).json({ error: "Flashcard not found" });
+  if (!set || !material) return res.status(404).json({ error: "Flashcard set or material not found" });
+  const allowed = await canAccessMaterial(material, req.auth.payload.sub);
+  if (!allowed) return res.status(403).json({ error: "Forbidden" });
   await Flashcards.deleteOne({ _id: new ObjectId(cardId) });
   if (card.setId) {
     await redis.del(`set:${card.setId.toString()}:cards`);
@@ -694,13 +776,20 @@ app.post("/api/groups", async (req, res) => {
   const group = {
     name,
     description: description || "",
-    joinCode: joinCode || null,
+    joinCode: (typeof joinCode === "string" && joinCode.trim()) ? joinCode.trim() : null,
     ownerId: req.auth.payload.sub,
     memberIds: [req.auth.payload.sub],
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
   const { insertedId } = await Groups.insertOne(group);
+  await GroupAuditLog.insertOne({
+    groupId: insertedId,
+    actorId: req.auth.payload.sub,
+    targetId: req.auth.payload.sub,
+    action: "create",
+    timestamp: Date.now(),
+  });
   res.json({ groupId: insertedId, ...group, _id: insertedId });
 });
 
@@ -711,12 +800,16 @@ app.get("/api/groups", async (req, res) => {
   res.json(groups);
 });
 
-// Browse joinable groups (for JoinGroup page)
+// Browse joinable groups (for JoinGroup page) — public = no joinCode / null / missing
 app.get("/api/groups/available", async (req, res) => {
   const groups = await Groups
     .find({
       memberIds: { $ne: req.auth.payload.sub },
-      $or: [{ joinCode: null }, { joinCode: { $exists: false } }]
+      $or: [
+        { joinCode: null },
+        { joinCode: { $exists: false } },
+        { joinCode: "" }
+      ]
     })
     .toArray();
   res.json(groups);
@@ -747,23 +840,70 @@ app.post("/api/groups/join", async (req, res) => {
 });
 
 app.put("/api/groups/:id", validateId, async (req, res) => {
-  const { name, description, joinCode, ownerId, memberIds, avatar } = req.body;
+  const { name, description, joinCode, memberIds, avatar } = req.body;
   const groupId = req.params.id;
+  const groupOid = new ObjectId(groupId);
+  const existing = await Groups.findOne({ _id: groupOid });
+  if (!existing) {
+    return res.status(404).json({ error: "Group not found" });
+  }
+  if (existing.ownerId !== req.auth.payload.sub) {
+    return res.status(403).json({ error: "Forbidden — only the group owner can update this group" });
+  }
+
   const updateDoc = { $set: { updatedAt: Date.now() } };
   if (name) updateDoc.$set.name = name;
   if (description !== undefined) updateDoc.$set.description = description;
   if (avatar !== undefined) updateDoc.$set.avatar = avatar;
   if (joinCode !== undefined) updateDoc.$set.joinCode = joinCode || null;
-  if (ownerId) updateDoc.$set.ownerId = ownerId;
-  if (memberIds) updateDoc.$set.memberIds = memberIds;
+
+  if (memberIds && Array.isArray(memberIds)) {
+    const ownerStr = String(existing.ownerId);
+    if (!memberIds.map((id) => String(id)).includes(ownerStr)) {
+      return res.status(400).json({ error: "Group owner must remain a member" });
+    }
+    const prev = new Set((existing.memberIds || []).map((id) => String(id)));
+    const next = new Set(memberIds.map((id) => String(id)));
+    const added = [...next].filter((id) => !prev.has(id));
+    const removed = [...prev].filter((id) => !next.has(id));
+    updateDoc.$set.memberIds = memberIds;
+    const result = await Groups.updateOne({ _id: groupOid }, updateDoc);
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: "Group not found" });
+    }
+    const now = Date.now();
+    const actorId = req.auth.payload.sub;
+    for (const uid of added) {
+      await GroupAuditLog.insertOne({
+        groupId: groupOid,
+        actorId,
+        targetId: uid,
+        action: "add",
+        timestamp: now,
+      });
+    }
+    for (const uid of removed) {
+      await handleMemberRemovalCascade(groupId, uid);
+      await GroupAuditLog.insertOne({
+        groupId: groupOid,
+        actorId,
+        targetId: uid,
+        action: "remove",
+        timestamp: now,
+      });
+    }
+    const updated = await Groups.findOne({ _id: groupOid });
+    return res.json(updated);
+  }
+
   if (Object.keys(updateDoc.$set).length <= 1) {
     return res.status(400).json({ error: "No update fields provided" });
   }
-  const result = await Groups.updateOne({ _id: new ObjectId(groupId) }, updateDoc);
+  const result = await Groups.updateOne({ _id: groupOid }, updateDoc);
   if (result.matchedCount === 0) {
     return res.status(404).json({ error: "Group not found" });
   }
-  const updated = await Groups.findOne({ _id: new ObjectId(groupId) });
+  const updated = await Groups.findOne({ _id: groupOid });
   res.json(updated);
 });
 
@@ -781,17 +921,44 @@ app.delete("/api/groups/:id", validateId, async (req, res) => {
   res.json({ message: "Group deleted successfully", groupId });
 });
 
-// Add member + gov-005 audit log
+// Add member + gov-005 audit log (owner adds anyone; non-owner may only self-join public groups — JoinGroup UI)
 app.post("/api/groups/:id/members", validateId, async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: "userId required" });
+  const group = await Groups.findOne({ _id: new ObjectId(req.params.id) });
+  if (!group) return res.status(404).json({ error: "Group not found" });
+  const caller = req.auth.payload.sub;
+  const isOwner = group.ownerId === caller;
+  const isPublicGroup = !group.joinCode || group.joinCode === "";
+
+  if (!isOwner) {
+    if (!(userId === caller && isPublicGroup)) {
+      return res.status(403).json({ error: "Forbidden — only the group owner can add members" });
+    }
+    if (group.memberIds.includes(caller)) {
+      return res.json({ ok: true, message: "Already a member" });
+    }
+    await Groups.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $addToSet: { memberIds: caller } }
+    );
+    await GroupAuditLog.insertOne({
+      groupId: new ObjectId(req.params.id),
+      actorId: caller,
+      targetId: caller,
+      action: "join",
+      timestamp: Date.now(),
+    });
+    return res.json({ ok: true });
+  }
+
   await Groups.updateOne(
     { _id: new ObjectId(req.params.id) },
     { $addToSet: { memberIds: userId } }
   );
   await GroupAuditLog.insertOne({
     groupId: new ObjectId(req.params.id),
-    actorId: req.auth.payload.sub,
+    actorId: caller,
     targetId: userId,
     action: "add",
     timestamp: Date.now(),
@@ -930,22 +1097,32 @@ app.get("/api/topics", async (req, res) => {
 });
 
 app.put("/api/topics/:id", validateId, async (req, res) => {
-  const { title, description, ownerId, groupId, groupIds } = req.body;
+  const { title, description, groupId, groupIds } = req.body;
   const topicId = req.params.id;
+  const topicOid = new ObjectId(topicId);
+  const existing = await Topics.findOne({ _id: topicOid });
+  if (!existing) {
+    return res.status(404).json({ error: "Topic not found" });
+  }
+  if (existing.ownerId !== req.auth.payload.sub) {
+    return res.status(403).json({ error: "Forbidden — only the topic owner can update this topic" });
+  }
   const updateDoc = { $set: { updatedAt: Date.now() } };
   if (title) updateDoc.$set.title = title;
   if (description !== undefined) updateDoc.$set.description = description;
-  if (ownerId) updateDoc.$set.ownerId = ownerId;
   if (groupIds && Array.isArray(groupIds)) {
     updateDoc.$set.groupIds = groupIds.map(id => new ObjectId(id));
   } else if (groupId) {
     updateDoc.$set.groupIds = [new ObjectId(groupId)];
   }
-  const result = await Topics.updateOne({ _id: new ObjectId(topicId) }, updateDoc);
+  if (Object.keys(updateDoc.$set).length <= 1) {
+    return res.status(400).json({ error: "No update fields provided" });
+  }
+  const result = await Topics.updateOne({ _id: topicOid }, updateDoc);
   if (result.matchedCount === 0) {
     return res.status(404).json({ error: "Topic not found" });
   }
-  const updated = await Topics.findOne({ _id: new ObjectId(topicId) });
+  const updated = await Topics.findOne({ _id: topicOid });
   res.json(updated);
 });
 

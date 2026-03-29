@@ -32,8 +32,8 @@ This content could contain personal information, including names, course informa
 
 ## 3. Data Storage and Encryption
 
-- **Database:** MongoDB Atlas, deployed in AWS ca-central-1 (Canada). Data is encrypted at rest using Transparent Data Encryption (TDE) with Customer Managed Keys (AWS KMS CMK, AES-256).
-- **Cache and Queue:** Redis (ElastiCache), deployed in AWS ca-central-1, with encryption in transit.
+- **Database:** MongoDB Atlas, deployed in ca-central-1 (Canada). Data is encrypted at rest using MongoDB Atlas Transparent Data Encryption (AES-256).
+- **Cache and Queue:** Hosted Redis, configured in ca-central-1 with TLS encryption in transit.
 - **CLOUD Act Disclosure:** MongoDB Atlas is operated by MongoDB, Inc., a US-based company. Despite data being stored in ca-central-1, US authorities could potentially compel access under the US CLOUD Act. We disclose this honestly.
 
 ## 4. Third-Party Processors
@@ -45,7 +45,7 @@ This content could contain personal information, including names, course informa
 
 ## 5. Data Residency
 
-All persistent data (database, cache) is stored exclusively in AWS ca-central-1 (Canada).
+All persistent StudyFlow-managed storage (MongoDB Atlas and hosted Redis) is configured in ca-central-1 (Canada).
 
 The sole exception is AI processing: when you use AI features, your note content is transmitted to OpenAI's API servers in the United States. This transit is disclosed before your first use of AI features and is documented in our Terms of Service.
 
@@ -56,7 +56,7 @@ The sole exception is AI processing: when you use AI features, your note content
   - All your notes, materials, flashcards, jobs, and group audit log entries are deleted from MongoDB.
   - All your Redis cache entries and queued jobs are purged.
   - Your membership is removed from all groups.
-  - Your Auth0 identity is deleted, invalidating all tokens.
+  - Your Auth0 identity is retained so you can sign in again later without repeating onboarding.
 - **Limitation:** Data already sent to OpenAI for AI processing before your deletion cannot be recalled. OpenAI retains API call logs per their own retention policy. This is outside our control and is disclosed in the Terms of Service.
 
 ## 7. Cookies and Tokens

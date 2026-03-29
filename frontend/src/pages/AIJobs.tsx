@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useJobs, useAllMaterials } from '@/hooks/useApi';
+import { useJobs, useAllMaterials, useRetryJob } from '@/hooks/useApi';
+import { toast } from 'sonner';
 import { EmptyState } from '@/components/EmptyState';
 import { Job } from '@/types';
 
@@ -56,6 +57,7 @@ const getJobTypeLabel = (type: Job['type']) => {
 export default function AIJobs() {
   const { data: jobs = [], isLoading } = useJobs();
   const { data: materials = [] } = useAllMaterials();
+  const retryMutation = useRetryJob();
 
   const getMaterialById = (id: string) => materials.find((m) => m.id === id);
 
@@ -110,10 +112,28 @@ export default function AIJobs() {
                   </Button>
                 </Link>
               )}
-              {job.status === 'failed' && (
-                <Button variant="outline" size="sm">
+              {job.status === 'failed' && job.inputMaterialId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={retryMutation.isPending}
+                  onClick={async () => {
+                    try {
+                      await retryMutation.mutateAsync({
+                        type: job.type,
+                        inputMaterialId: job.inputMaterialId!,
+                      });
+                      toast.success('Job queued — check Active Jobs');
+                    } catch (err: any) {
+                      const status = err?.status;
+                      if (status === 429) toast.error('Rate limit reached. Try again later.');
+                      else if (status === 503) toast.error('AI temporarily unavailable.');
+                      else toast.error('Failed to retry job.');
+                    }
+                  }}
+                >
                   <RefreshCw className="w-4 h-4 mr-1" />
-                  Retry
+                  {retryMutation.isPending ? 'Retrying...' : 'Retry'}
                 </Button>
               )}
             </div>

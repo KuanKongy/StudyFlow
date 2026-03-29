@@ -27,8 +27,8 @@ export function PpContent() {
 
       <h2>3. Data Storage and Encryption</h2>
       <ul>
-        <li><strong>Database:</strong> MongoDB Atlas in AWS ca-central-1 (Canada). Encrypted at rest using TDE with Customer Managed Keys (AWS KMS CMK, AES-256).</li>
-        <li><strong>Cache:</strong> Redis (ElastiCache) in AWS ca-central-1, encrypted in transit.</li>
+        <li><strong>Database:</strong> MongoDB Atlas in ca-central-1 (Canada). Encrypted at rest using MongoDB Atlas Transparent Data Encryption (AES-256).</li>
+        <li><strong>Cache:</strong> Hosted Redis in ca-central-1 with TLS encryption in transit.</li>
         <li><strong>CLOUD Act Disclosure:</strong> MongoDB Atlas is operated by MongoDB, Inc. (US). Despite ca-central-1 storage, US authorities could potentially compel access under the CLOUD Act.</li>
       </ul>
 
@@ -42,12 +42,12 @@ export function PpContent() {
       </table>
 
       <h2>5. Data Residency</h2>
-      <p>All persistent data is stored in AWS ca-central-1 (Canada). The sole exception is AI processing, where note content transits to OpenAI's US servers. This is disclosed before first use.</p>
+      <p>All persistent StudyFlow-managed storage is configured in ca-central-1 (Canada). The sole exception is AI processing, where note content transits to OpenAI's US servers. This is disclosed before first use.</p>
 
       <h2>6. Your Rights and Data Deletion</h2>
       <ul>
         <li><strong>Access:</strong> View all your data through the StudyFlow interface.</li>
-        <li><strong>Deletion:</strong> Delete your account at any time. All data is removed from MongoDB, Redis, and group memberships. Auth0 identity is deleted.</li>
+        <li><strong>Deletion:</strong> Delete your account at any time. All StudyFlow-managed data is removed from MongoDB, Redis, and group memberships. Your Auth0 identity is retained so you can sign in again later without repeating onboarding.</li>
         <li><strong>Limitation:</strong> Data already sent to OpenAI cannot be recalled.</li>
       </ul>
 
