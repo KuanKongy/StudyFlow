@@ -103,3 +103,87 @@ Build and deploy workflows use these parameters:
 3. Run a Terraform apply once to create core infrastructure and ECR repositories.
 4. Push to `main` so image URIs are written to SSM.
 5. Run `deploy-terraform.yml` and approve the production environment gate to apply.
+
+## 10) Migration to Railway
+
+Use Railway for the backend runtime services:
+
+- `api` service from this repository with Root Directory `/api`.
+- `worker` service from this repository with Root Directory `/worker`.
+
+Keep the existing external data services:
+
+- MongoDB Atlas for persistent data.
+- Upstash Redis for caching and the worker queue.
+
+API service variables:
+
+- `NODE_ENV=production`
+- `MONGO_URL=<mongodb-atlas-connection-string>`
+- `REDIS_URL=<upstash-redis-connection-string>`
+- `AUTH0_DOMAIN=<auth0-tenant-domain>`
+- `AUTH0_AUDIENCE=<auth0-api-audience>`
+- `CORS_ORIGIN=<vercel-frontend-origin>`
+
+Worker service variables:
+
+- `NODE_ENV=production`
+- `MONGO_URL=<mongodb-atlas-connection-string>`
+- `REDIS_URL=<upstash-redis-connection-string>`
+- `OPENAI_API_KEY=<openai-api-key>`
+- `OPENAI_BASE_URL=<optional-compatible-api-base-url>`
+
+Railway setup checklist:
+
+1. Create a Railway project.
+2. Add the API service from GitHub and set Root Directory to `/api`.
+3. Add the worker service from GitHub and set Root Directory to `/worker`.
+4. Set both services' `MONGO_URL` to the existing MongoDB Atlas connection string. Include the application database name in the URI.
+5. Set both services' `REDIS_URL` to the existing Upstash Redis TLS connection string, normally beginning with `rediss://`.
+6. Allow Railway outbound access in MongoDB Atlas Network Access. Prefer a narrowly scoped rule when Railway provides stable egress; otherwise Atlas may require `0.0.0.0/0` with strong credentials.
+7. Generate a public domain for the API service only.
+8. Do not generate a public domain for the worker; it only needs Atlas, Upstash, and outbound OpenAI access.
+9. Set the API health check path to `/health`.
+10. After Vercel deployment, set `CORS_ORIGIN` on the API to the exact frontend origin, for example `https://studyflow.example.com`.
+11. Verify `GET https://<railway-api-domain>/health` returns `{ "ok": true }`.
+
+Notes:
+
+- The API listens on Railway's runtime `PORT`; keep the fallback `4000` only for local development.
+- Browser-side frontend code cannot call Railway private networking. The Vercel frontend must call the API public domain.
+- Keep the AWS Terraform stack available until the Railway and Vercel production path has been verified end to end.
+- The AWS GitHub Actions workflows are archived and guarded by repository variable `ENABLE_AWS_CICD == true`. Leave that variable unset while AWS/Terraform resources are being removed.
+
+## 11) Migration to Vercel
+
+Use Vercel for the Vite frontend:
+
+- Import this repository into Vercel.
+- Set the frontend Root Directory to `frontend`.
+- Build command: `npm run build`.
+- Output directory: `dist`.
+- Keep `frontend/vercel.json` in place so Vercel rewrites client-side routes to `index.html`.
+
+Frontend environment variables:
+
+- `VITE_AUTH0_DOMAIN=<auth0-tenant-domain>`
+- `VITE_AUTH0_CLIENT_ID=<auth0-spa-client-id>`
+- `VITE_AUTH0_AUDIENCE=<auth0-api-audience>`
+- `VITE_API_BASE_URL=https://<railway-api-domain>`
+
+Vercel setup checklist:
+
+1. Deploy the frontend from `frontend/`.
+2. Add the Vercel production domain to Auth0:
+   - Allowed Callback URLs
+   - Allowed Logout URLs
+   - Allowed Web Origins
+3. Set the Railway API `CORS_ORIGIN` to the Vercel production origin.
+4. Redeploy the Vercel frontend after setting `VITE_API_BASE_URL`.
+5. Run an end-to-end smoke test:
+   - Load the frontend.
+   - Log in with Auth0.
+   - Fetch `/api/me`.
+   - Create a note.
+   - Trigger an AI job.
+   - Confirm the worker consumes the Redis job and writes the generated material to MongoDB.
