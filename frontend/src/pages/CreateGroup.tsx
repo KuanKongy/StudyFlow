@@ -46,7 +46,7 @@ export default function CreateGroup() {
   };
 
   return (
-    <div className="p-6 lg:p-8 max-w-xl mx-auto animate-fade-in">
+    <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-xl mx-auto animate-fade-in">
       <Button
         variant="ghost"
         size="sm"
@@ -93,8 +93,8 @@ export default function CreateGroup() {
             </div>
 
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex min-w-0 items-start gap-2">
                   {isPrivate ? <Lock className="w-4 h-4" /> : <Globe className="w-4 h-4" />}
                   <Label htmlFor="visibility">
                     {isPrivate ? 'Private — join by code only' : 'Public — anyone can browse and join'}
@@ -129,7 +129,7 @@ export default function CreateGroup() {
               )}
             </div>
 
-            <div className="flex gap-3 pt-2">
+            <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row">
               <Button
                 type="button"
                 variant="outline"

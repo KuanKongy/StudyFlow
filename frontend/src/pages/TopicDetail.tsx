@@ -62,7 +62,7 @@ export default function TopicDetail() {
 
   if (isLoading || !topic) {
     return (
-      <div className="p-6 lg:p-8 max-w-6xl mx-auto animate-fade-in">
+      <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-6xl mx-auto animate-fade-in">
         <div className="animate-pulse space-y-6">
           <div className="h-8 bg-muted rounded w-1/3" />
           <div className="h-4 bg-muted rounded w-1/2" />
@@ -164,12 +164,12 @@ export default function TopicDetail() {
   };
 
   return (
-    <div className="p-6 lg:p-8 max-w-6xl mx-auto animate-fade-in">
+    <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-6xl mx-auto animate-fade-in">
       {/* Header */}
-      <div className="flex items-start justify-between mb-8">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-2xl font-bold">{topic.title}</h1>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-8">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-3 mb-2">
+            <h1 className="min-w-0 break-words text-2xl font-bold">{topic.title}</h1>
             <PrivacyBadge privacy={topic.privacy} groupName={group?.name} />
           </div>
           {topic.description && <p className="text-muted-foreground">{topic.description}</p>}

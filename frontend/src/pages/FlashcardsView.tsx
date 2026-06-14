@@ -162,18 +162,18 @@ export default function FlashcardsView() {
   };
 
   return (
-    <div className="p-6 lg:p-8 max-w-4xl mx-auto animate-fade-in">
+    <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-4xl mx-auto animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
           <Link to={material.topicId ? `/app/topics/${material.topicId}` : '/app/flashcards'}>
             <Button variant="ghost" size="icon-sm">
               <ArrowLeft className="w-4 h-4" />
             </Button>
           </Link>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold">{material.title}</h1>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="min-w-0 break-words text-xl font-bold">{material.title}</h1>
               <MaterialBadge type="flashcard_set" />
             </div>
             <div className="flex items-center gap-2 mt-1">
@@ -188,7 +188,7 @@ export default function FlashcardsView() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
           <Button variant={mode === 'list' ? 'secondary' : 'ghost'} size="sm" onClick={() => setMode('list')}>
             <List className="w-4 h-4 mr-1" />List
           </Button>
@@ -270,7 +270,7 @@ export default function FlashcardsView() {
       ) : (
         <div className="max-w-2xl mx-auto">
           {flashcards.length === 0 ? (
-            <Card className="p-8 text-center">
+            <Card className="p-4 text-center sm:p-8">
               <p className="text-muted-foreground">No flashcards yet. Add some in List mode!</p>
             </Card>
           ) : (
@@ -286,14 +286,14 @@ export default function FlashcardsView() {
               <div className="perspective-1000 cursor-pointer mb-6" onClick={() => setIsFlipped(!isFlipped)}>
                 <div className={cn('relative w-full aspect-[3/2] flashcard-flip', isFlipped && 'flipped')}>
                   <Card className="absolute inset-0 flashcard-front backface-hidden">
-                    <CardContent className="h-full flex flex-col items-center justify-center p-8 text-center">
+                    <CardContent className="h-full flex flex-col items-center justify-center p-5 text-center sm:p-8">
                       <p className="text-xs text-muted-foreground mb-4">Question</p>
                       <p className="text-lg font-medium">{currentCard?.question}</p>
                       <p className="text-xs text-primary mt-6">Click to flip</p>
                     </CardContent>
                   </Card>
                   <Card className="absolute inset-0 flashcard-back backface-hidden bg-success/5 border-success/20">
-                    <CardContent className="h-full flex flex-col items-center justify-center p-8 text-center">
+                    <CardContent className="h-full flex flex-col items-center justify-center p-5 text-center sm:p-8">
                       <p className="text-xs text-muted-foreground mb-4">Answer</p>
                       <p className="text-lg">{currentCard?.answer}</p>
                     </CardContent>

@@ -32,7 +32,7 @@ export default function Dashboard() {
   const displayGroups = useMemo(() => groups.slice(0, 3), [groups]);
 
   return (
-    <div className="p-6 lg:p-8 max-w-7xl mx-auto animate-fade-in">
+    <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-7xl mx-auto animate-fade-in">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-2xl lg:text-3xl font-bold mb-2">

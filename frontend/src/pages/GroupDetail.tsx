@@ -67,7 +67,7 @@ export default function GroupDetail() {
 
   if (groupsLoading || !groupId) {
     return (
-      <div className="p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
+      <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
         <div className="flex items-center justify-center py-12">
           <p className="text-muted-foreground">Loading...</p>
         </div>
@@ -176,9 +176,9 @@ export default function GroupDetail() {
   const profileUser = profileUserId ? getUserById(profileUserId) : null;
 
   return (
-    <div className="p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
+    <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
       {/* Header */}
-      <div className="flex items-start justify-between mb-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-8">
         <div className="flex items-center gap-4 min-w-0">
           <Avatar className="w-16 h-16 rounded-xl shrink-0">
             <AvatarImage src={group.avatar} className="rounded-xl" />
@@ -187,7 +187,7 @@ export default function GroupDetail() {
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-bold mb-1 truncate">{group.name}</h1>
               {group.joinCode ? (
                 <Badge variant="secondary" className="gap-1 shrink-0"><Lock className="w-3 h-3" />Private</Badge>
@@ -201,7 +201,7 @@ export default function GroupDetail() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           {!isOwner && (
             <AlertDialog>
               <AlertDialogTrigger asChild>

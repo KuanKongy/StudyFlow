@@ -1,10 +1,18 @@
+import { useState } from 'react';
 import { Outlet, Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { AppSidebar } from './AppSidebar';
 import { TopBar } from './TopBar';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from '@/components/ui/sheet';
 
 export function AppLayout() {
   const { isAuthenticated, isLoading } = useAuth();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -22,11 +30,27 @@ export function AppLayout() {
   }
 
   return (
-    <div className="min-h-screen flex bg-background">
-      <AppSidebar />
+    <div className="min-h-dvh flex bg-background">
+      <AppSidebar className="hidden md:flex" />
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetContent
+          side="left"
+          className="w-[min(20rem,88vw)] border-sidebar-border bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+        >
+          <SheetTitle className="sr-only">StudyFlow navigation</SheetTitle>
+          <SheetDescription className="sr-only">
+            Navigate between your groups, topics, notes, summaries, and flashcards.
+          </SheetDescription>
+          <AppSidebar
+            className="flex h-full w-full border-r-0"
+            onNavigate={() => setMobileNavOpen(false)}
+            onClose={() => setMobileNavOpen(false)}
+          />
+        </SheetContent>
+      </Sheet>
       <div className="flex-1 flex flex-col min-w-0">
-        <TopBar />
-        <main className="flex-1 overflow-auto">
+        <TopBar onMenuClick={() => setMobileNavOpen(true)} />
+        <main className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto">
           <Outlet />
         </main>
       </div>

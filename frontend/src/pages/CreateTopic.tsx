@@ -67,7 +67,7 @@ export default function CreateTopic() {
   const isSubmitting = createTopicMutation.isPending;
 
   return (
-    <div className="p-6 lg:p-8 max-w-xl mx-auto animate-fade-in">
+    <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-xl mx-auto animate-fade-in">
       <Button
         variant="ghost"
         size="sm"
@@ -118,7 +118,7 @@ export default function CreateTopic() {
               <RadioGroup
                 value={privacy}
                 onValueChange={(v) => setPrivacy(v as 'private' | 'group')}
-                className="grid grid-cols-2 gap-4"
+                className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4"
               >
                 <label
                   htmlFor="private"
@@ -190,7 +190,7 @@ export default function CreateTopic() {
               </div>
             )}
 
-            <div className="flex gap-3 pt-2">
+            <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row">
               <Button
                 type="button"
                 variant="outline"

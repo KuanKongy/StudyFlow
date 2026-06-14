@@ -22,7 +22,7 @@ export default function Groups() {
 
   if (isLoading) {
     return (
-      <div className="p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
+      <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
         <div className="flex items-center justify-center py-12">
           <p className="text-muted-foreground">Loading groups...</p>
         </div>
@@ -33,18 +33,18 @@ export default function Groups() {
   const profileUser = profileUserId ? getUserById(profileUserId) : null;
 
   return (
-    <div className="p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
-      <div className="flex items-center justify-between mb-8">
+    <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold mb-1">My Groups</h1>
           <p className="text-muted-foreground">Collaborate with others in study groups</p>
         </div>
-        <div className="flex gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:flex">
           <Link to="/app/groups/join">
-            <Button variant="outline"><UserPlus className="w-4 h-4 mr-2" />Join Group</Button>
+            <Button variant="outline" className="w-full"><UserPlus className="w-4 h-4 mr-2" />Join Group</Button>
           </Link>
           <Link to="/app/groups/new">
-            <Button><Plus className="w-4 h-4 mr-2" />Create Group</Button>
+            <Button className="w-full"><Plus className="w-4 h-4 mr-2" />Create Group</Button>
           </Link>
         </div>
       </div>
@@ -55,7 +55,7 @@ export default function Groups() {
           title="No groups yet"
           description="Create a study group to collaborate with classmates and share materials."
           action={
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <Link to="/app/groups/join">
                 <Button variant="outline"><UserPlus className="w-4 h-4 mr-2" />Join Group</Button>
               </Link>

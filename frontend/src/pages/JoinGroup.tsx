@@ -61,7 +61,7 @@ export default function JoinGroup() {
 
   if (isLoading) {
     return (
-      <div className="p-6 lg:p-8 max-w-4xl mx-auto animate-fade-in">
+      <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-4xl mx-auto animate-fade-in">
         <div className="flex items-center justify-center py-12">
           <p className="text-muted-foreground">Loading...</p>
         </div>
@@ -70,7 +70,7 @@ export default function JoinGroup() {
   }
 
   return (
-    <div className="p-6 lg:p-8 max-w-4xl mx-auto animate-fade-in">
+    <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-4xl mx-auto animate-fade-in">
       <div className="flex items-center gap-4 mb-8">
         <Link to="/app/groups">
           <Button variant="ghost" size="icon-sm">

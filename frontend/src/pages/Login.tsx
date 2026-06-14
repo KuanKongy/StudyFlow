@@ -54,7 +54,7 @@ export default function Login() {
           </div>
         </div>
       </div>
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 relative">
+      <div className="w-full lg:w-1/2 flex items-center justify-center px-4 py-8 sm:p-8 relative">
         <div className="absolute top-4 right-4">
           <ThemeToggle />
         </div>

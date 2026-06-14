@@ -74,13 +74,13 @@ export default function AIJobs() {
     return (
       <Card key={job.id} className="study-card">
         <CardContent className="p-4">
-          <div className="flex items-start gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
             <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
               {getJobTypeIcon(job.type)}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <h3 className="font-medium truncate">{getJobTypeLabel(job.type)}</h3>
+              <div className="flex flex-wrap items-center gap-2 mb-1">
+                <h3 className="font-medium">{getJobTypeLabel(job.type)}</h3>
                 <Badge className={`${getStatusColor(job.status)} gap-1`}>
                   {getStatusIcon(job.status)}
                   {job.status}
@@ -89,7 +89,7 @@ export default function AIJobs() {
               <p className="text-sm text-muted-foreground truncate">
                 From: {inputMaterial?.title || 'Unknown material'}
               </p>
-              <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-muted-foreground">
                 <span>Created: {new Date(job.createdAt).toLocaleString()}</span>
                 {job.startedAt && (
                   <span>Started: {new Date(job.startedAt).toLocaleString()}</span>
@@ -102,7 +102,7 @@ export default function AIJobs() {
                 <p className="text-sm text-destructive mt-2">{job.error}</p>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
               {job.status === 'done' && resultMaterial && (
                 <Link
                   to={`/app/materials/${resultMaterial.id}/${resultMaterial.type === 'flashcard_set' ? 'flashcards' : resultMaterial.type}`}
@@ -144,7 +144,7 @@ export default function AIJobs() {
   };
 
   return (
-    <div className="p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
+    <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
       <div className="flex items-center gap-4 mb-8">
         <Link to="/app">
           <Button variant="ghost" size="icon-sm">

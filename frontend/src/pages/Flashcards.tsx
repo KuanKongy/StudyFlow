@@ -46,13 +46,13 @@ export default function Flashcards() {
   const exitSelectMode = () => { setSelectMode(false); setSelected(new Set()); };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="mx-auto max-w-7xl space-y-6 px-4 py-5 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Flashcard Sets</h1>
+          <h1 className="text-2xl font-bold sm:text-3xl">Flashcard Sets</h1>
           <p className="text-muted-foreground mt-1">All your flashcard sets for studying</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {!selectMode && flashcardSets.some((s) => s.isOwner !== false) && (
             <Button variant="outline" size="sm" onClick={() => setSelectMode(true)}>
               <CheckSquare className="w-4 h-4 mr-2" />Select

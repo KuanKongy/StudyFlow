@@ -6,7 +6,7 @@ import { PpContent } from '@/components/legal/PpContent';
 
 export default function PrivacyPolicy() {
   return (
-    <div className="min-h-screen bg-background p-6 lg:p-12">
+    <div className="min-h-screen bg-background px-4 py-5 sm:p-6 lg:p-12">
       <div className="max-w-3xl mx-auto">
         <Link to="/login">
           <Button variant="ghost" size="sm" className="mb-6">
@@ -15,7 +15,7 @@ export default function PrivacyPolicy() {
           </Button>
         </Link>
         <Card>
-          <CardContent className="prose dark:prose-invert max-w-none p-8">
+          <CardContent className="prose dark:prose-invert max-w-none p-4 sm:p-8">
             <PpContent />
           </CardContent>
         </Card>

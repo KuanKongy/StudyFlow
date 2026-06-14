@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { LogOut, User, Cpu } from 'lucide-react';
+import { LogOut, User, Cpu, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -13,7 +13,11 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useJobs } from '@/hooks/useApi';
 
-export function TopBar() {
+interface TopBarProps {
+  onMenuClick: () => void;
+}
+
+export function TopBar({ onMenuClick }: TopBarProps) {
   const { user, logout } = useAuth();
   const { data: jobs = [] } = useJobs();
 
@@ -22,10 +26,20 @@ export function TopBar() {
   );
 
   return (
-    <header className="h-14 bg-card border-b border-border px-4 flex items-center justify-between">
+    <header className="h-14 shrink-0 bg-card border-b border-border px-3 sm:px-4 flex items-center justify-between">
       {/* Left side - App name */}
-      <div className="flex items-center gap-4">
-        <span className="text-lg font-semibold text-foreground">StudyFlow</span>
+      <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="md:hidden"
+          onClick={onMenuClick}
+          aria-label="Open navigation"
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
+        <span className="truncate text-base font-semibold text-foreground sm:text-lg">StudyFlow</span>
       </div>
 
       {/* Right side - Jobs, notifications, user */}

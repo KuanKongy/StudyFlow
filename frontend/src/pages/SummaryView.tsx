@@ -27,7 +27,7 @@ export default function SummaryView() {
   }
 
   return (
-    <div className="p-6 lg:p-8 max-w-4xl mx-auto animate-fade-in">
+    <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-4xl mx-auto animate-fade-in">
       <div className="flex items-center gap-4 mb-6">
         <Link to={material.topicId ? `/app/topics/${material.topicId}` : '/app'}>
           <Button variant="ghost" size="icon-sm"><ArrowLeft className="w-4 h-4" /></Button>

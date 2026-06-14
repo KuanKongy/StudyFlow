@@ -69,19 +69,21 @@ export default function Onboarding() {
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-2xl">
-        <div className="flex items-center justify-center gap-3 mb-8 relative">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-            <BookOpen className="w-7 h-7 text-white" />
+        <div className="mb-8 flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="w-10 h-10 shrink-0 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center sm:h-12 sm:w-12">
+              <BookOpen className="w-6 h-6 text-white sm:h-7 sm:w-7" />
+            </div>
+            <span className="truncate text-xl font-bold sm:text-2xl">StudyFlow</span>
           </div>
-          <span className="text-2xl font-bold">StudyFlow</span>
           <Button
             variant="outline"
             size="sm"
-            className="absolute right-0 border-muted-foreground/50 font-medium"
+            className="shrink-0 border-muted-foreground/50 font-medium"
             onClick={() => logout()}
           >
             <LogOut className="w-4 h-4 mr-2" />
-            Sign out
+            <span>Sign out</span>
           </Button>
         </div>
 
@@ -94,7 +96,7 @@ export default function Onboarding() {
               }`}>
                 {i + 1}
               </div>
-              {i < 2 && <div className="w-12 h-0.5 bg-muted" />}
+              {i < 2 && <div className="w-8 h-0.5 bg-muted sm:w-12" />}
             </div>
           ))}
         </div>
@@ -109,7 +111,7 @@ export default function Onboarding() {
               <div
                 ref={tosRef}
                 onScroll={(e) => handleScroll(e, 'tos')}
-                className="h-80 overflow-y-auto border rounded-lg p-4 text-sm prose dark:prose-invert max-w-none"
+                className="h-[50dvh] overflow-y-auto border rounded-lg p-3 text-sm prose dark:prose-invert max-w-none sm:h-80 sm:p-4"
               >
                 <TosContent />
               </div>
@@ -135,7 +137,7 @@ export default function Onboarding() {
               <div
                 ref={ppRef}
                 onScroll={(e) => handleScroll(e, 'pp')}
-                className="h-80 overflow-y-auto border rounded-lg p-4 text-sm prose dark:prose-invert max-w-none"
+                className="h-[50dvh] overflow-y-auto border rounded-lg p-3 text-sm prose dark:prose-invert max-w-none sm:h-80 sm:p-4"
               >
                 <PpContent />
               </div>

@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import type { MouseEvent } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   BookOpen,
@@ -8,6 +9,7 @@ import {
   FileCheck,
   Layers,
   ChevronDown,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -20,43 +22,50 @@ import {
 } from '@/components/ui/collapsible';
 import { useGroups, useTopics, useAllMaterials } from '@/hooks/useApi';
 
-export function AppSidebar() {
+interface AppSidebarProps {
+  className?: string;
+  onNavigate?: () => void;
+  onClose?: () => void;
+}
+
+export function AppSidebar({ className, onNavigate, onClose }: AppSidebarProps) {
   const location = useLocation();
   const { user } = useAuth();
   const { data: groups = [] } = useGroups();
   const { data: topics = [] } = useTopics();
   const { data: materials = [] } = useAllMaterials();
+  const userId = user?.id;
 
   const myTopics = useMemo(
-    () => (user ? topics.filter((t) => t.ownerId === user.id) : []),
-    [topics, user?.id]
+    () => (userId ? topics.filter((t) => t.ownerId === userId) : []),
+    [topics, userId]
   );
   const myNotes = useMemo(
     () =>
-      user
+      userId
         ? materials.filter(
-            (m) => m.type === 'note' && m.ownerId === user.id
+            (m) => m.type === 'note' && m.ownerId === userId
           )
         : [],
-    [materials, user?.id]
+    [materials, userId]
   );
   const mySummaries = useMemo(
     () =>
-      user
+      userId
         ? materials.filter(
-            (m) => m.type === 'summary' && m.ownerId === user.id
+            (m) => m.type === 'summary' && m.ownerId === userId
           )
         : [],
-    [materials, user?.id]
+    [materials, userId]
   );
   const myFlashcardSets = useMemo(
     () =>
-      user
+      userId
         ? materials.filter(
-            (m) => m.type === 'flashcard_set' && m.ownerId === user.id
+            (m) => m.type === 'flashcard_set' && m.ownerId === userId
           )
         : [],
-    [materials, user?.id]
+    [materials, userId]
   );
 
   const [groupsOpen, setGroupsOpen] = useState(true);
@@ -65,17 +74,42 @@ export function AppSidebar() {
   const [summariesOpen, setSummariesOpen] = useState(false);
   const [flashcardsOpen, setFlashcardsOpen] = useState(false);
 
+  const handleNavigation = (event: MouseEvent<HTMLElement>) => {
+    if ((event.target as HTMLElement).closest('a')) {
+      onNavigate?.();
+    }
+  };
+
   return (
-    <aside className="w-64 bg-sidebar text-sidebar-foreground flex flex-col min-h-screen border-r border-sidebar-border">
+    <aside
+      className={cn(
+        "w-64 shrink-0 bg-sidebar text-sidebar-foreground flex-col min-h-dvh border-r border-sidebar-border",
+        className,
+      )}
+      onClick={handleNavigation}
+    >
       {/* Logo */}
-      <div className="p-4 border-b border-sidebar-border flex items-center justify-between">
+      <div className="h-14 shrink-0 px-4 border-b border-sidebar-border flex items-center justify-between">
         <Link to="/app" className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
             <BookOpen className="w-5 h-5 text-white" />
           </div>
           <span className="font-semibold text-lg">StudyFlow</span>
         </Link>
-        <ThemeToggle />
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          {onClose && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={onClose}
+              aria-label="Close navigation"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Navigation */}

@@ -62,13 +62,13 @@ export default function Topics() {
   };
 
   return (
-    <div className="p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
-      <div className="flex items-center justify-between mb-6">
+    <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold mb-1">Topics</h1>
           <p className="text-muted-foreground">Your private and group study topics</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {!selectMode && filteredTopics.some((t) => t.ownerId === user?.id) && (
             <Button variant="outline" size="sm" onClick={() => setSelectMode(true)}>
               <CheckSquare className="w-4 h-4 mr-2" />Select

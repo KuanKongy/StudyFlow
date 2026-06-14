@@ -64,7 +64,7 @@ export default function CreateFlashcardSet() {
   };
 
   return (
-    <div className="p-6 lg:p-8 max-w-3xl mx-auto animate-fade-in">
+    <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-3xl mx-auto animate-fade-in">
       <Button variant="ghost" size="sm" className="mb-6" onClick={() => navigate(-1)}>
         <ArrowLeft className="w-4 h-4 mr-2" />Back
       </Button>
@@ -127,7 +127,7 @@ export default function CreateFlashcardSet() {
               ))}
             </div>
 
-            <div className="flex gap-3 pt-2">
+            <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row">
               <Button type="button" variant="outline" onClick={() => navigate(-1)} className="flex-1">Cancel</Button>
               <Button type="submit" disabled={createSetMutation.isPending} className="flex-1">
                 {createSetMutation.isPending ? 'Creating...' : 'Create Flashcard Set'}

@@ -140,7 +140,7 @@ export default function NoteView() {
   }
 
   return (
-    <div className="p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in h-full flex flex-col">
+    <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in h-full flex flex-col">
       <AlertDialog open={showAiDisclosure} onOpenChange={(open) => !open && handleAiDisclosureCancel()}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -156,16 +156,16 @@ export default function NoteView() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
           <Link to={material.topicId ? `/app/topics/${material.topicId}` : '/app'}>
             <Button variant="ghost" size="icon-sm">
               <ArrowLeft className="w-4 h-4" />
             </Button>
           </Link>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold">{material.title}</h1>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="min-w-0 break-words text-xl font-bold">{material.title}</h1>
               <MaterialBadge type="note" />
             </div>
             <div className="flex items-center gap-2 mt-1">
@@ -179,7 +179,7 @@ export default function NoteView() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" disabled={isGenerating}>

@@ -46,10 +46,10 @@ export default function Summaries() {
   const exitSelectMode = () => { setSelectMode(false); setSelected(new Set()); };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="mx-auto max-w-7xl space-y-6 px-4 py-5 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Summaries</h1>
+          <h1 className="text-2xl font-bold sm:text-3xl">Summaries</h1>
           <p className="text-muted-foreground mt-1">AI-generated summaries from notes</p>
         </div>
         {!selectMode && summaries.some((s) => s.isOwner !== false) && (
