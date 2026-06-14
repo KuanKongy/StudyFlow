@@ -136,8 +136,8 @@ Worker service variables:
 Railway setup checklist:
 
 1. Create a Railway project.
-2. Add the API service from GitHub and set Root Directory to `/api`.
-3. Add the worker service from GitHub and set Root Directory to `/worker`.
+2. Add the API service from GitHub and set Root Directory to `/api`. Leave the custom Dockerfile path unset so Railway discovers `/api/Dockerfile` within that root.
+3. Add the worker service from GitHub and set Root Directory to `/worker`. Leave the custom Dockerfile path unset so Railway discovers `/worker/Dockerfile` within that root.
 4. Set both services' `MONGO_URL` to the existing MongoDB Atlas connection string. Include the application database name in the URI.
 5. Set both services' `REDIS_URL` to the existing Upstash Redis TLS connection string, normally beginning with `rediss://`.
 6. Allow Railway outbound access in MongoDB Atlas Network Access. Prefer a narrowly scoped rule when Railway provides stable egress; otherwise Atlas may require `0.0.0.0/0` with strong credentials.

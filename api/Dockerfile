@@ -1,6 +1,6 @@
 FROM node:22-alpine AS base
 WORKDIR /app
-COPY package*.json ./
+COPY package.json package-lock.json ./
 
 FROM base AS development
 RUN npm ci
