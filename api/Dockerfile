@@ -13,4 +13,8 @@ COPY . .
 
 ENV NODE_ENV=production
 
-CMD ["npm", "start"]
+EXPOSE 4000
+
+USER node
+
+CMD ["node", "src/index.js"]

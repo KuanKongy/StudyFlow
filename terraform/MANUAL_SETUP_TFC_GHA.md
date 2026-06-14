@@ -119,6 +119,7 @@ Keep the existing external data services:
 API service variables:
 
 - `NODE_ENV=production`
+- `PORT=4000`
 - `MONGO_URL=<mongodb-atlas-connection-string>`
 - `REDIS_URL=<upstash-redis-connection-string>`
 - `AUTH0_DOMAIN=<auth0-tenant-domain>`
@@ -140,7 +141,7 @@ Railway setup checklist:
 4. Set both services' `MONGO_URL` to the existing MongoDB Atlas connection string. Include the application database name in the URI.
 5. Set both services' `REDIS_URL` to the existing Upstash Redis TLS connection string, normally beginning with `rediss://`.
 6. Allow Railway outbound access in MongoDB Atlas Network Access. Prefer a narrowly scoped rule when Railway provides stable egress; otherwise Atlas may require `0.0.0.0/0` with strong credentials.
-7. Generate a public domain for the API service only.
+7. Generate a public domain for the API service only and set its target port to `4000`.
 8. Do not generate a public domain for the worker; it only needs Atlas, Upstash, and outbound OpenAI access.
 9. Set the API health check path to `/health`.
 10. After Vercel deployment, set `CORS_ORIGIN` on the API to the exact frontend origin, for example `https://studyflow.example.com`.
