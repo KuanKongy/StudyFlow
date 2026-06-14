@@ -20,7 +20,14 @@ function log(level, msg, fields = {}) {
 }
 
 const app = express();
-app.use(cors());
+const corsOrigins = (process.env.CORS_ORIGIN || process.env.FRONTEND_ORIGIN || "")
+  .split(",")
+  .map(origin => origin.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin: corsOrigins.length > 0 ? corsOrigins : true,
+}));
 app.use((req, res, next) => {
   const id = req.headers["x-request-id"] || randomUUID();
   req.requestId = id;
@@ -1254,6 +1261,8 @@ app.post("/api/materials/batch-delete", async (req, res) => {
   res.json({ ok: true, deleted, skipped });
 });
 
-app.listen(4000, () => {
-  log("info", "api_listening", { port: 4000 });
+const port = process.env.PORT || 4000;
+
+app.listen(port, "0.0.0.0", () => {
+  log("info", "api_listening", { port });
 });

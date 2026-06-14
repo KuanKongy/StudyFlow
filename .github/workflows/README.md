@@ -4,15 +4,26 @@ These workflows assume **this repository root is the StudyFlow app** (`api/`, `w
 
 Documentation for Terraform and AWS setup: [`../../terraform/MANUAL_SETUP_TFC_GHA.md`](../../terraform/MANUAL_SETUP_TFC_GHA.md) and [`../../terraform/README.md`](../../terraform/README.md).
 
+## Archived AWS workflows
+
+The AWS/Terraform workflows are retained for reference, but they are intentionally disabled while the project migrates to Railway + Vercel.
+
+- They no longer run automatically on pull requests or pushes to `main`.
+- They are manual-only where applicable.
+- Each AWS job is guarded by repository variable `ENABLE_AWS_CICD == true`.
+- Leave `ENABLE_AWS_CICD` unset or set to any value other than `true` to keep these workflows inert.
+
+Railway and Vercel deployments should be configured in those platforms directly. See [`../../terraform/MANUAL_SETUP_TFC_GHA.md`](../../terraform/MANUAL_SETUP_TFC_GHA.md) §10-11 for the migration checklist.
+
 ## Overview
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| [`pr-checks.yml`](./pr-checks.yml) | Pull request to `main` | API + Worker lint/test; Terraform **plan** only (no apply). |
-| [`main-branch.yml`](./main-branch.yml) | Push to **`main`** | Orchestrates **`build-images` → `deploy-frontend` → `deploy-terraform`** (Terraform only after the first two succeed). |
-| [`build-images.yml`](./build-images.yml) | **`workflow_call`** (from main pipeline) or **manual** | Build/push API and Worker Docker images to ECR; write image URIs and deploy metadata to **SSM**. |
-| [`deploy-frontend.yml`](./deploy-frontend.yml) | **`workflow_call`** (from main pipeline) or **manual** | `npm run build`, **`aws s3 sync`**, **CloudFront invalidation**. Requires **`frontend/package-lock.json`** in git and `FRONTEND_AUTH0_*` secrets. |
-| [`deploy-terraform.yml`](./deploy-terraform.yml) | **`workflow_call`** (from main pipeline) or **manual** | Terraform **plan** → artifacts → **`production` environment** gate → **apply** → ECS + health check. |
+| [`pr-checks.yml`](./pr-checks.yml) | Manual only, guarded | Archived API + Worker lint/test; Terraform **plan** only (no apply). |
+| [`main-branch.yml`](./main-branch.yml) | Manual only, guarded | Archived orchestration for **`build-images` → `deploy-frontend` → `deploy-terraform`**. |
+| [`build-images.yml`](./build-images.yml) | `workflow_call` or manual, guarded | Archived build/push API and Worker Docker images to ECR; write image URIs and deploy metadata to **SSM**. |
+| [`deploy-frontend.yml`](./deploy-frontend.yml) | `workflow_call` or manual, guarded | Archived S3 + CloudFront frontend deploy. |
+| [`deploy-terraform.yml`](./deploy-terraform.yml) | `workflow_call` or manual, guarded | Archived Terraform **plan** → artifacts → **`production` environment** gate → **apply** → ECS + health check. |
 
 **Authentication**
 

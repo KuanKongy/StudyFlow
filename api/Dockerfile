@@ -1,10 +1,16 @@
-FROM node:22-alpine
+FROM node:22-alpine AS base
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+
+FROM base AS development
+RUN npm ci
+COPY . .
+CMD ["npm", "run", "dev"]
+
+FROM base AS production
+RUN npm ci --omit=dev
 COPY . .
 
-ENV AUTH0_DOMAIN=${AUTH0_DOMAIN}
-ENV AUTH0_AUDIENCE=${AUTH0_AUDIENCE}
+ENV NODE_ENV=production
 
-CMD ["npm", "run", "dev"]
+CMD ["npm", "start"]

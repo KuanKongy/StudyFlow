@@ -12,7 +12,9 @@ services:
       - "6379:6379"
 
   api:
-    build: ./api
+    build:
+      context: ./api
+      target: development
     ports:
       - "4000:4000"
     volumes:
@@ -28,7 +30,9 @@ services:
       - redis
 
   worker:
-    build: ./worker
+    build:
+      context: ./worker
+      target: development
     volumes:
       - ./worker:/app
       - worker_node_modules:/app/node_modules

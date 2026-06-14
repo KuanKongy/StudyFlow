@@ -1,12 +1,10 @@
-# Single entry point for pushes to main: images → frontend → Terraform (plan, then gated apply).
-# Reusable workflows are also callable manually via workflow_dispatch on each file.
+# Archived AWS entry point. It is intentionally manual-only while the project
+# migrates to Railway + Vercel.
 
-name: Main branch pipeline
+name: Archived AWS main branch pipeline
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 concurrency:
   group: studyflow-main-pipeline
@@ -18,14 +16,17 @@ permissions:
 
 jobs:
   build-images:
+    if: ${{ vars.ENABLE_AWS_CICD == 'true' }}
     uses: ./.github/workflows/build-images.yml
     secrets: inherit
 
   deploy-frontend:
+    if: ${{ vars.ENABLE_AWS_CICD == 'true' }}
     uses: ./.github/workflows/deploy-frontend.yml
     secrets: inherit
 
   deploy-terraform:
+    if: ${{ vars.ENABLE_AWS_CICD == 'true' }}
     needs: [build-images, deploy-frontend]
     uses: ./.github/workflows/deploy-terraform.yml
     secrets: inherit

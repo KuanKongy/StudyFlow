@@ -1,4 +1,4 @@
-name: Deploy frontend to S3
+name: Archived AWS Deploy frontend to S3
 
 on:
   workflow_call:
@@ -19,6 +19,7 @@ env:
 
 jobs:
   deploy:
+    if: ${{ vars.ENABLE_AWS_CICD == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

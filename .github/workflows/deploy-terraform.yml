@@ -1,4 +1,4 @@
-name: Deploy Terraform
+name: Archived AWS Deploy Terraform
 
 on:
   workflow_call:
@@ -24,6 +24,7 @@ env:
 
 jobs:
   plan:
+    if: ${{ vars.ENABLE_AWS_CICD == 'true' }}
     runs-on: ubuntu-latest
     outputs:
       api_image_uri: ${{ steps.resolve_images.outputs.api_image_uri }}

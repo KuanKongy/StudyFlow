@@ -4,6 +4,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon src/index.js",
+    "start": "node src/index.js",
     "lint": "eslint .",
     "test": "node -e \"console.log('api test: no tests configured yet')\""
   },
@@ -17,13 +18,13 @@
     "express": "^5.2.1",
     "express-oauth2-jwt-bearer": "^1.7.3",
     "mongodb": "^7.0.0",
-    "nodemon": "^3.1.11",
     "redis": "^5.10.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
     "eslint": "^9.32.0",
     "globals": "^15.15.0",
+    "nodemon": "^3.1.11",
     "@types/express": "^5.0.6",
     "@types/node": "^25.0.9",
     "tsx": "^4.21.0",

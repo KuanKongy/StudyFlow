@@ -131,7 +131,6 @@ Worker service variables:
 - `MONGO_URL=<mongodb-atlas-connection-string>`
 - `REDIS_URL=<upstash-redis-connection-string>`
 - `OPENAI_API_KEY=<openai-api-key>`
-- `OPENAI_BASE_URL=<optional-compatible-api-base-url>`
 
 Railway setup checklist:
 
