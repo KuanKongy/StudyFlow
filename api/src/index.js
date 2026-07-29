@@ -40,7 +40,20 @@ const mongoUrl = process.env.MONGO_URL;
 const redisUrl = process.env.REDIS_URL;
 
 const mongo = new MongoClient(mongoUrl);
-const redis = createClient({ url: redisUrl });
+const redis = createClient({
+  url: redisUrl,
+  // keep the connection alive so the provider doesn't idle-close it
+  pingInterval: 60_000,
+  socket: {
+    reconnectStrategy: retries => Math.min(retries * 100, 3000),
+  },
+});
+
+// without an error listener, a dropped socket becomes an unhandled
+// 'error' event and kills the process
+redis.on("error", err => log("error", "redis_error", { err: err?.message || String(err) }));
+redis.on("reconnecting", () => log("warn", "redis_reconnecting"));
+redis.on("ready", () => log("info", "redis_ready"));
 
 await mongo.connect();
 await redis.connect();
