@@ -212,34 +212,30 @@ async function getFlashcardAccessContext(cardId) {
   return { card, set, material };
 }
 
+// gov-005: every membership change is audited
+async function audit(groupId, actorId, targetId, action, timestamp = Date.now()) {
+  await GroupAuditLog.insertOne({
+    groupId: groupId instanceof ObjectId ? groupId : new ObjectId(groupId),
+    actorId,
+    targetId,
+    action,
+    timestamp,
+  });
+}
+
+// Shared by "join by code" and "self-join public group"
+async function joinGroupAsMember(groupId, userId) {
+  const groupOid = groupId instanceof ObjectId ? groupId : new ObjectId(groupId);
+  await Groups.updateOne({ _id: groupOid }, { $addToSet: { memberIds: userId } });
+  await audit(groupOid, userId, userId, "join");
+}
+
 // Health Check
 app.get("/health", (req, res) => {
   res.json({ ok: true });
 });
 
-// Dev-only test endpoint (no JWT) — disabled in production
-app.post("/enqueue", async (req, res) => {
-  if (process.env.NODE_ENV === "production") {
-    return res.status(404).json({ error: "Not found" });
-  }
-  const { insertedId } = await Jobs.insertOne({
-    type: "TEST",
-    status: "queued",
-    createdAt: Date.now(),
-  });
-  await redis.lPush("queue:jobs", JSON.stringify({ jobId: insertedId.toString() }));
-  res.json({ jobId: insertedId });
-});
-
 app.use("/api", checkJwt);
-
-// Test Auth
-app.get("/api/private", (req, res) => {
-  res.json({
-    message: "You are authenticated!",
-    user: req.auth.payload
-  });
-});
 
 // ===================== Users =====================
 
@@ -300,12 +296,6 @@ app.put("/api/me", async (req, res) => {
   const result = await Users.updateOne({ authId }, updateDoc);
   if (result.matchedCount === 0) return res.status(404).json({ error: "User not found" });
   const user = await Users.findOne({ authId });
-  res.json(user);
-});
-
-app.get("/api/users/:id", async (req, res) => {
-  const user = await Users.findOne({ _id: new ObjectId(req.params.id) });
-  if (!user) return res.status(404).json({ error: "User not found" });
   res.json(user);
 });
 
@@ -382,76 +372,51 @@ app.post("/api/notes", async (req, res) => {
     type: "note",
     title,
     ownerId: req.auth.payload.sub,
-    topicId: topicId ? new ObjectId(topicId) : null,
+    topicId: new ObjectId(topicId),
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
   const { insertedId: materialId } = await StudyMaterials.insertOne(material);
   await Notes.insertOne({ materialId, content });
-  if (topicId) {
-    await redis.del(`topic:${topicId}:materials`);
-  }
+  await redis.del(`topic:${topicId}:materials`);
   res.json({ materialId });
 });
 
 // AI job endpoints — gov-002 (amended): requires access to source note (ownership or group membership)
-app.post("/api/materials/:id/flashcards", validateId, aiRateLimiter, aiCircuitBreaker, async (req, res) => {
-  const inputMaterialId = new ObjectId(req.params.id);
-  const material = await StudyMaterials.findOne({ _id: inputMaterialId });
-  if (!material || material.type !== "note") {
-    return res.status(400).json({ error: "Invalid input material" });
-  }
-  const allowed = await canAccessMaterial(material, req.auth.payload.sub);
-  if (!allowed) {
-    return res.status(403).json({ error: "Forbidden — you do not have access to this material" });
-  }
+function enqueueAiJob(jobType) {
+  return async (req, res) => {
+    const inputMaterialId = new ObjectId(req.params.id);
+    const material = await StudyMaterials.findOne({ _id: inputMaterialId });
+    if (!material || material.type !== "note") {
+      return res.status(400).json({ error: "Invalid input material" });
+    }
+    const allowed = await canAccessMaterial(material, req.auth.payload.sub);
+    if (!allowed) {
+      return res.status(403).json({ error: "Forbidden — you do not have access to this material" });
+    }
 
-  const job = {
-    type: "GENERATE_FLASHCARDS",
-    inputMaterialId,
-    ownerId: req.auth.payload.sub,
-    status: "queued",
-    retries: 0,
-    createdAt: Date.now(),
-    requestId: req.requestId,
+    const job = {
+      type: jobType,
+      inputMaterialId,
+      ownerId: req.auth.payload.sub,
+      status: "queued",
+      retries: 0,
+      createdAt: Date.now(),
+      requestId: req.requestId,
+    };
+    const { insertedId } = await Jobs.insertOne(job);
+    await redis.lPush("queue:jobs", JSON.stringify({ jobId: insertedId.toString() }));
+    res.json({ jobId: insertedId });
   };
-  const { insertedId } = await Jobs.insertOne(job);
-  await redis.lPush("queue:jobs", JSON.stringify({ jobId: insertedId.toString() }));
-  res.json({ jobId: insertedId });
-});
+}
 
-app.post("/api/materials/:id/summary", validateId, aiRateLimiter, aiCircuitBreaker, async (req, res) => {
-  const inputMaterialId = new ObjectId(req.params.id);
-  const material = await StudyMaterials.findOne({ _id: inputMaterialId });
-  if (!material || material.type !== "note") {
-    return res.status(400).json({ error: "Invalid input material" });
-  }
-  const allowed = await canAccessMaterial(material, req.auth.payload.sub);
-  if (!allowed) {
-    return res.status(403).json({ error: "Forbidden — you do not have access to this material" });
-  }
-
-  const job = {
-    type: "GENERATE_SUMMARY",
-    inputMaterialId,
-    ownerId: req.auth.payload.sub,
-    status: "queued",
-    retries: 0,
-    createdAt: Date.now(),
-    requestId: req.requestId,
-  };
-  const { insertedId } = await Jobs.insertOne(job);
-  await redis.lPush("queue:jobs", JSON.stringify({ jobId: insertedId.toString() }));
-  res.json({ jobId: insertedId });
-});
+app.post("/api/materials/:id/flashcards", validateId, aiRateLimiter, aiCircuitBreaker, enqueueAiJob("GENERATE_FLASHCARDS"));
+app.post("/api/materials/:id/summary", validateId, aiRateLimiter, aiCircuitBreaker, enqueueAiJob("GENERATE_SUMMARY"));
 
 // ===================== Jobs =====================
 
-app.get("/api/jobs/:id", async (req, res) => {
+app.get("/api/jobs/:id", validateId, async (req, res) => {
   const jobId = req.params.id;
-  if (!ObjectId.isValid(jobId)) {
-    return res.status(400).json({ error: "Invalid job id" });
-  }
   const job = await Jobs.findOne({ _id: new ObjectId(jobId) });
   if (!job) return res.status(404).json({ error: "Job not found" });
   if (job.ownerId !== req.auth.payload.sub) {
@@ -686,22 +651,6 @@ app.get("/api/materials/:id/flashcard-set", validateId, async (req, res) => {
   res.json(set);
 });
 
-app.put("/api/materials/:id/flashcard-set", validateId, async (req, res) => {
-  const flashcardsetId = new ObjectId(req.params.id);
-  const { materialId } = req.body;
-  if (!materialId) return res.status(400).json({ error: "Missing materialId" });
-  const { set, material } = await getMaterialForFlashcardSet(flashcardsetId);
-  if (!set) return res.status(404).json({ error: "Flashcard set not found" });
-  if (!material) return res.status(404).json({ error: "Material not found" });
-  const allowed = await canAccessMaterial(material, req.auth.payload.sub);
-  if (!allowed) return res.status(403).json({ error: "Forbidden" });
-  const flashcardset = await FlashcardSets.updateOne(
-    { _id: flashcardsetId },
-    { $set: { materialId } }
-  );
-  res.json(flashcardset);
-});
-
 app.get("/api/flashcard-sets/:id/cards", validateId, async (req, res) => {
   const setId = req.params.id;
   const cacheKey = `set:${setId}:cards`;
@@ -745,10 +694,6 @@ app.put("/api/materials/:id/cards", validateId, async (req, res) => {
   const flashcard = await Flashcards.findOne({ _id: new ObjectId(flashcardId) });
   if (flashcard?.setId) {
     await redis.del(`set:${flashcard.setId.toString()}:cards`);
-    const flashcardSet = await FlashcardSets.findOne({ _id: new ObjectId(flashcard.setId) });
-    if (flashcardSet?.topicId) {
-      await redis.del(`topic:${flashcardSet.topicId}:materials`);
-    }
   }
   res.json(result);
 });
@@ -803,13 +748,7 @@ app.post("/api/groups", async (req, res) => {
     updatedAt: Date.now(),
   };
   const { insertedId } = await Groups.insertOne(group);
-  await GroupAuditLog.insertOne({
-    groupId: insertedId,
-    actorId: req.auth.payload.sub,
-    targetId: req.auth.payload.sub,
-    action: "create",
-    timestamp: Date.now(),
-  });
+  await audit(insertedId, req.auth.payload.sub, req.auth.payload.sub, "create");
   res.json({ groupId: insertedId, ...group, _id: insertedId });
 });
 
@@ -844,17 +783,7 @@ app.post("/api/groups/join", async (req, res) => {
   if (group.memberIds.includes(req.auth.payload.sub)) {
     return res.json({ ok: true, message: "Already a member", group });
   }
-  await Groups.updateOne(
-    { _id: group._id },
-    { $addToSet: { memberIds: req.auth.payload.sub } }
-  );
-  await GroupAuditLog.insertOne({
-    groupId: group._id,
-    actorId: req.auth.payload.sub,
-    targetId: req.auth.payload.sub,
-    action: "join",
-    timestamp: Date.now(),
-  });
+  await joinGroupAsMember(group._id, req.auth.payload.sub);
   const updated = await Groups.findOne({ _id: group._id });
   res.json({ ok: true, group: updated });
 });
@@ -894,23 +823,11 @@ app.put("/api/groups/:id", validateId, async (req, res) => {
     const now = Date.now();
     const actorId = req.auth.payload.sub;
     for (const uid of added) {
-      await GroupAuditLog.insertOne({
-        groupId: groupOid,
-        actorId,
-        targetId: uid,
-        action: "add",
-        timestamp: now,
-      });
+      await audit(groupOid, actorId, uid, "add", now);
     }
     for (const uid of removed) {
       await handleMemberRemovalCascade(groupId, uid);
-      await GroupAuditLog.insertOne({
-        groupId: groupOid,
-        actorId,
-        targetId: uid,
-        action: "remove",
-        timestamp: now,
-      });
+      await audit(groupOid, actorId, uid, "remove", now);
     }
     const updated = await Groups.findOne({ _id: groupOid });
     return res.json(updated);
@@ -958,17 +875,7 @@ app.post("/api/groups/:id/members", validateId, async (req, res) => {
     if (group.memberIds.includes(caller)) {
       return res.json({ ok: true, message: "Already a member" });
     }
-    await Groups.updateOne(
-      { _id: new ObjectId(req.params.id) },
-      { $addToSet: { memberIds: caller } }
-    );
-    await GroupAuditLog.insertOne({
-      groupId: new ObjectId(req.params.id),
-      actorId: caller,
-      targetId: caller,
-      action: "join",
-      timestamp: Date.now(),
-    });
+    await joinGroupAsMember(req.params.id, caller);
     return res.json({ ok: true });
   }
 
@@ -976,13 +883,7 @@ app.post("/api/groups/:id/members", validateId, async (req, res) => {
     { _id: new ObjectId(req.params.id) },
     { $addToSet: { memberIds: userId } }
   );
-  await GroupAuditLog.insertOne({
-    groupId: new ObjectId(req.params.id),
-    actorId: caller,
-    targetId: userId,
-    action: "add",
-    timestamp: Date.now(),
-  });
+  await audit(req.params.id, caller, userId, "add");
   res.json({ ok: true });
 });
 
@@ -1041,13 +942,7 @@ app.delete("/api/groups/:id/members", validateId, async (req, res) => {
     { $pull: { memberIds: userId } }
   );
   await handleMemberRemovalCascade(req.params.id, userId);
-  await GroupAuditLog.insertOne({
-    groupId: new ObjectId(req.params.id),
-    actorId: req.auth.payload.sub,
-    targetId: userId,
-    action: isSelfRemoval ? "leave" : "remove",
-    timestamp: Date.now(),
-  });
+  await audit(req.params.id, req.auth.payload.sub, userId, isSelfRemoval ? "leave" : "remove");
   res.json({ ok: true });
 });
 
@@ -1067,13 +962,7 @@ app.post("/api/groups/:id/leave", validateId, async (req, res) => {
     { $pull: { memberIds: userId } }
   );
   await handleMemberRemovalCascade(req.params.id, userId);
-  await GroupAuditLog.insertOne({
-    groupId: new ObjectId(req.params.id),
-    actorId: userId,
-    targetId: userId,
-    action: "leave",
-    timestamp: Date.now(),
-  });
+  await audit(req.params.id, userId, userId, "leave");
   res.json({ ok: true });
 });
 
@@ -1146,14 +1035,8 @@ app.put("/api/topics/:id", validateId, async (req, res) => {
   res.json(updated);
 });
 
-app.delete("/api/topics/:id", validateId, async (req, res) => {
-  const topicId = req.params.id;
-  const topicOid = new ObjectId(topicId);
-  const topic = await Topics.findOne({ _id: topicOid });
-  if (!topic) return res.status(404).json({ error: "Topic not found" });
-  if (topic.ownerId !== req.auth.payload.sub) {
-    return res.status(403).json({ error: "Forbidden — only the topic owner can delete this topic" });
-  }
+// Deletes a topic plus every material (and their notes/sets/cards) inside it.
+async function cascadeDeleteTopic(topicOid) {
   const materials = await StudyMaterials.find({ topicId: topicOid }).toArray();
   const materialIds = materials.map(m => m._id);
   if (materialIds.length > 0) {
@@ -1163,10 +1046,20 @@ app.delete("/api/topics/:id", validateId, async (req, res) => {
     await FlashcardSets.deleteMany({ materialId: { $in: materialIds } });
     await Notes.deleteMany({ materialId: { $in: materialIds } });
     await StudyMaterials.deleteMany({ topicId: topicOid });
-    await redis.del(`topic:${topicId}:materials`);
   }
   await Topics.deleteOne({ _id: topicOid });
-  await redis.del(`topic:${topicId}:materials`);
+  await redis.del(`topic:${topicOid.toString()}:materials`);
+}
+
+app.delete("/api/topics/:id", validateId, async (req, res) => {
+  const topicId = req.params.id;
+  const topicOid = new ObjectId(topicId);
+  const topic = await Topics.findOne({ _id: topicOid });
+  if (!topic) return res.status(404).json({ error: "Topic not found" });
+  if (topic.ownerId !== req.auth.payload.sub) {
+    return res.status(403).json({ error: "Forbidden — only the topic owner can delete this topic" });
+  }
+  await cascadeDeleteTopic(topicOid);
   res.json({ message: "Topic and all materials deleted successfully", topicId });
 });
 
@@ -1182,19 +1075,7 @@ app.post("/api/topics/batch-delete", async (req, res) => {
       const topicOid = new ObjectId(id);
       const topic = await Topics.findOne({ _id: topicOid });
       if (!topic || topic.ownerId !== userId) continue;
-      const materials = await StudyMaterials.find({ topicId: topicOid }).toArray();
-      const materialIds = materials.map(m => m._id);
-      if (materialIds.length > 0) {
-        const sets = await FlashcardSets.find({ materialId: { $in: materialIds } }).toArray();
-        const setIds = sets.map(s => s._id);
-        if (setIds.length > 0) await Flashcards.deleteMany({ setId: { $in: setIds } });
-        await FlashcardSets.deleteMany({ materialId: { $in: materialIds } });
-        await Notes.deleteMany({ materialId: { $in: materialIds } });
-        await StudyMaterials.deleteMany({ topicId: topicOid });
-        await redis.del(`topic:${id}:materials`);
-      }
-      await Topics.deleteOne({ _id: topicOid });
-      await redis.del(`topic:${id}:materials`);
+      await cascadeDeleteTopic(topicOid);
       deleted++;
     } catch (e) {
       log("error", "batch_delete_topic_error", {

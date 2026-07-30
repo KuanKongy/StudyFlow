@@ -61,6 +61,13 @@ log("info", "worker_connected");
 const MAX_RETRIES = 3;
 const openai429State = { consecutive429s: 0 };
 
+async function failJob(job, errorMessage) {
+  await Jobs.updateOne(
+    { _id: job._id },
+    { $set: { status: "failed", error: errorMessage } }
+  );
+}
+
 async function callOpenAI(messages, temperature, job) {
   try {
     const response = await openai.chat.completions.create({
@@ -94,10 +101,7 @@ async function callOpenAI(messages, temperature, job) {
         await redis.lPush("queue:jobs", JSON.stringify({ jobId: job._id.toString() }));
         return null;
       }
-      await Jobs.updateOne(
-        { _id: job._id },
-        { $set: { status: "failed", error: `OpenAI rate limited after ${MAX_RETRIES} retries` } }
-      );
+      await failJob(job, `OpenAI rate limited after ${MAX_RETRIES} retries`);
       return null;
     }
     throw err;
@@ -134,20 +138,14 @@ while (true) {
   const userExists = await Users.findOne({ authId: jobDoc.ownerId });
   if (!userExists) {
     log("info", "job_skipped_user_deleted", { jobId, ownerId: jobDoc.ownerId });
-    await Jobs.updateOne(
-      { _id: jobDoc._id },
-      { $set: { status: "failed", error: "User deleted" } }
-    );
+    await failJob(jobDoc, "User deleted");
     continue;
   }
 
   const handler = handlers[jobDoc.type];
   if (!handler) {
     log("error", "unknown_job_type", { jobId, type: jobDoc.type });
-    await Jobs.updateOne(
-      { _id: jobDoc._id },
-      { $set: { status: "failed", error: `Unknown job type: ${jobDoc.type}` } }
-    );
+    await failJob(jobDoc, `Unknown job type: ${jobDoc.type}`);
     continue;
   }
 
@@ -159,10 +157,7 @@ while (true) {
       err: err?.message || String(err),
       requestId: jobDoc.requestId,
     });
-    await Jobs.updateOne(
-      { _id: jobDoc._id },
-      { $set: { status: "failed", error: err.message } }
-    );
+    await failJob(jobDoc, err.message);
   }
 
   log("info", "job_completed", { jobId, requestId: jobDoc.requestId });
@@ -181,18 +176,12 @@ async function handleGenerateFlashcards(job) {
 
   const note = await Notes.findOne({ materialId: job.inputMaterialId });
   if (!note) {
-    await Jobs.updateOne(
-      { _id: job._id },
-      { $set: { status: "failed", error: "Input note not found" } }
-    );
+    await failJob(job, "Input note not found");
     return;
   }
 
   if (typeof note.content === "string" && note.content.length > 50_000) {
-    await Jobs.updateOne(
-      { _id: job._id },
-      { $set: { status: "failed", error: "Note too large to summarize" } }
-    );
+    await failJob(job, "Note too large to summarize");
     return;
   }
 
@@ -234,18 +223,12 @@ async function handleGenerateFlashcards(job) {
   try {
     aiResult = JSON.parse(response.choices[0].message.content);
   } catch {
-    await Jobs.updateOne(
-      { _id: job._id },
-      { $set: { status: "failed", error: "Failed to parse AI output" } }
-    );
+    await failJob(job, "Failed to parse AI output");
     return;
   }
 
   if (!aiResult || !Array.isArray(aiResult.cards) || aiResult.cards.length === 0) {
-    await Jobs.updateOne(
-      { _id: job._id },
-      { $set: { status: "failed", error: "Invalid AI output" } }
-    );
+    await failJob(job, "Invalid AI output");
     return;
   }
 
@@ -281,89 +264,72 @@ async function handleGenerateFlashcards(job) {
   );
 }
 
+// Errors propagate to the main loop's catch, which logs and fails the job.
 async function handleGenerateSummary(job) {
-  try {
-    await Jobs.updateOne(
-      { _id: job._id },
-      { $set: { status: "processing", startedAt: Date.now() } }
-    );
+  await Jobs.updateOne(
+    { _id: job._id },
+    { $set: { status: "processing", startedAt: Date.now() } }
+  );
 
-    const note = await Notes.findOne({ materialId: job.inputMaterialId });
-    if (!note) {
-      await Jobs.updateOne(
-        { _id: job._id },
-        { $set: { status: "failed", error: "Input note not found" } }
-      );
-      return;
-    }
-
-    if (typeof note.content === "string" && note.content.length > 50_000) {
-      await Jobs.updateOne(
-        { _id: job._id },
-        { $set: { status: "failed", error: "Note too large to summarize" } }
-      );
-      return;
-    }
-
-    const response = await callOpenAI(
-      [
-        {
-          role: "system",
-          content:
-            "You are an assistant that summarizes study notes. " +
-            "You MUST only use information present in the input. " +
-            "Do not add new facts. Preserve important terminology. Output valid Markdown.",
-        },
-        {
-          role: "user",
-          content: `
-    Summarize the following study note into a concise, well-structured summary.
-    Use headings and bullet points where appropriate.
-    
-    <NOTE>
-    ${note.content}
-    </NOTE>
-          `,
-        },
-      ],
-      0.2,
-      job
-    );
-
-    if (!response) return;
-
-    const summaryText = response.choices[0].message.content;
-
-    const inputMaterial = await StudyMaterials.findOne({ _id: job.inputMaterialId });
-    const { insertedId: materialId } = await StudyMaterials.insertOne({
-      type: "summary",
-      title: `Summary: ${inputMaterial.title}`,
-      ownerId: job.ownerId,
-      topicId: inputMaterial.topicId ?? null,
-      derivedFrom: inputMaterial._id,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-    await Notes.insertOne({ materialId, content: summaryText });
-
-    if (inputMaterial?.topicId) {
-      await redis.del(`topic:${inputMaterial.topicId.toString()}:materials`);
-    }
-    await redis.set(`job:${job._id.toString()}`, "done", { EX: 30 });
-
-    await Jobs.updateOne(
-      { _id: job._id },
-      { $set: { status: "done", resultMaterialId: materialId, finishedAt: Date.now() } }
-    );
-  } catch (err) {
-    log("error", "summary_job_error", {
-      jobId: job._id?.toString?.(),
-      err: err?.message || String(err),
-      requestId: job.requestId,
-    });
-    await Jobs.updateOne(
-      { _id: job._id },
-      { $set: { status: "failed", error: err.message } }
-    );
+  const note = await Notes.findOne({ materialId: job.inputMaterialId });
+  if (!note) {
+    await failJob(job, "Input note not found");
+    return;
   }
+
+  if (typeof note.content === "string" && note.content.length > 50_000) {
+    await failJob(job, "Note too large to summarize");
+    return;
+  }
+
+  const response = await callOpenAI(
+    [
+      {
+        role: "system",
+        content:
+          "You are an assistant that summarizes study notes. " +
+          "You MUST only use information present in the input. " +
+          "Do not add new facts. Preserve important terminology. Output valid Markdown.",
+      },
+      {
+        role: "user",
+        content: `
+  Summarize the following study note into a concise, well-structured summary.
+  Use headings and bullet points where appropriate.
+
+  <NOTE>
+  ${note.content}
+  </NOTE>
+        `,
+      },
+    ],
+    0.2,
+    job
+  );
+
+  if (!response) return;
+
+  const summaryText = response.choices[0].message.content;
+
+  const inputMaterial = await StudyMaterials.findOne({ _id: job.inputMaterialId });
+  const { insertedId: materialId } = await StudyMaterials.insertOne({
+    type: "summary",
+    title: `Summary: ${inputMaterial.title}`,
+    ownerId: job.ownerId,
+    topicId: inputMaterial.topicId ?? null,
+    derivedFrom: inputMaterial._id,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+  await Notes.insertOne({ materialId, content: summaryText });
+
+  if (inputMaterial?.topicId) {
+    await redis.del(`topic:${inputMaterial.topicId.toString()}:materials`);
+  }
+  await redis.set(`job:${job._id.toString()}`, "done", { EX: 30 });
+
+  await Jobs.updateOne(
+    { _id: job._id },
+    { $set: { status: "done", resultMaterialId: materialId, finishedAt: Date.now() } }
+  );
 }
