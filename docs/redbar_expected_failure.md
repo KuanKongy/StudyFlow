@@ -28,5 +28,9 @@ Red-bar tests are organized so that **removing enforcement code** in StudyFlow o
 | ops-001 | [ops-001-health.test.mjs](../tests/redbar/ops-001-health.test.mjs) | `GET /health` plus ALB Terraform path `/health` |
 | ops-003 | [ops-003-worker-recovery.test.mjs](../tests/redbar/ops-003-worker-recovery.test.mjs) | Stop Worker, enqueue jobs, restart Worker, queued jobs still complete |
 | ops-004 | [ops-004-failed-job-continues-queue.test.mjs](../tests/redbar/ops-004-failed-job-continues-queue.test.mjs) | Broken queued job fails, later queued job still reaches terminal state |
+| auth-007 | [auth-007-note-write-owner.test.mjs](../tests/redbar/auth-007-note-write-owner.test.mjs) | Co-member reads succeed; PUT note and card writes return 403 with data unchanged |
+| auth-008 | [auth-008-removal-cascade-scope.test.mjs](../tests/redbar/auth-008-removal-cascade-scope.test.mjs) | Member removal cascade is scoped to the group being left; unrelated-group topics/materials survive |
+| data-006 | [data-006-users-batch-no-pii.test.mjs](../tests/redbar/data-006-users-batch-no-pii.test.mjs) | `POST /api/users/batch` omits `email` and hides users with no shared group |
+| val-001 | [val-001-invalid-id-400.test.mjs](../tests/redbar/val-001-invalid-id-400.test.mjs) | Malformed ids in params/bodies → 400 (validateId + ObjectId.isValid), never 500 |
 
 Full suite: `npm test` (includes smoke + integration when network and stack are available).

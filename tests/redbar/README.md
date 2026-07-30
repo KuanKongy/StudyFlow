@@ -26,6 +26,10 @@ Each **claim ID** has **one** `tests/redbar/<claim>-*.test.mjs` file. Shared liv
 - **ops-002** — [ops-002-cloudwatch-terraform.test.mjs](ops-002-cloudwatch-terraform.test.mjs): Terraform must keep ECS `awslogs` shipping plus `log_retention_days = 30`.
 - **gov-005** — [gov-005-membership-audit.test.mjs](gov-005-membership-audit.test.mjs): group create, add, remove, join, leave, and owner `PUT` with `memberIds` all produce `groupAuditLog` entries with the required fields.
 - **ops-004** — [ops-004-failed-job-continues-queue.test.mjs](ops-004-failed-job-continues-queue.test.mjs): live worker queue progression after an intentionally broken job fails.
+- **auth-007** — [auth-007-note-write-owner.test.mjs](auth-007-note-write-owner.test.mjs): co-member of a group can read a shared note/cards but every write (PUT note, PUT/POST/DELETE cards) returns 403 and leaves Mongo untouched.
+- **auth-008** — [auth-008-removal-cascade-scope.test.mjs](auth-008-removal-cascade-scope.test.mjs): regression — removing a member from one group must not delete their topics/materials shared through other groups.
+- **data-006** — [data-006-users-batch-no-pii.test.mjs](data-006-users-batch-no-pii.test.mjs): `POST /api/users/batch` never returns emails and only resolves users who share a group with the caller.
+- **val-001** — [val-001-invalid-id-400.test.mjs](val-001-invalid-id-400.test.mjs): malformed ObjectIds in params and bodies → 400, never a 500 cast crash.
 
 ```bash
 npm run test:redbar

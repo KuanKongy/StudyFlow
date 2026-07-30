@@ -4,6 +4,7 @@
  * Covers: POST /api/flashcard-sets, GET /api/materials/:id/flashcard-set,
  *         GET /api/flashcard-sets/:id/cards, POST /api/flashcard-sets/:id/cards,
  *         PUT /api/materials/:id/cards, DELETE /api/flashcards/:id
+ *         Card writes are owner-only (auth-007): non-owners get 403.
  * Run: node --test tests/smoke/flashcards-crud.test.mjs
  */
 
@@ -19,6 +20,15 @@ function createStores() {
 }
 
 function buildServer(stores, requestingUser = "auth0|alice") {
+  // auth-007: card writes require owning the set's material
+  function ownsSet(setId) {
+    const set = stores.flashcardSets.find((s) => s._id === setId);
+    if (!set) return null;
+    const material = stores.materials.find((m) => m._id === set.materialId);
+    if (!material) return null;
+    return material.ownerId === requestingUser;
+  }
+
   return http.createServer((req, res) => {
     res.setHeader("Content-Type", "application/json");
     const url = new URL(req.url, "http://localhost");
@@ -69,8 +79,9 @@ function buildServer(stores, requestingUser = "auth0|alice") {
         req.on("end", () => {
           const { question, answer } = JSON.parse(body);
           if (!question || !answer) { res.writeHead(400); res.end(JSON.stringify({ error: "question and answer required" })); return; }
-          const set = stores.flashcardSets.find((s) => s._id === setId);
-          if (!set) { res.writeHead(404); res.end(JSON.stringify({ error: "Flashcard set not found" })); return; }
+          const owns = ownsSet(setId);
+          if (owns === null) { res.writeHead(404); res.end(JSON.stringify({ error: "Flashcard set not found" })); return; }
+          if (!owns) { res.writeHead(403); res.end(JSON.stringify({ error: "Forbidden" })); return; }
           const card = { _id: uid(), setId, question, answer };
           stores.flashcards.push(card);
           res.writeHead(200);
@@ -90,6 +101,7 @@ function buildServer(stores, requestingUser = "auth0|alice") {
         if (!question && !answer) { res.writeHead(400); res.end(JSON.stringify({ error: "Need question or answer" })); return; }
         const card = stores.flashcards.find((c) => c._id === cardId);
         if (!card) { res.writeHead(404); res.end(JSON.stringify({ error: "Flashcard not found" })); return; }
+        if (ownsSet(card.setId) === false) { res.writeHead(403); res.end(JSON.stringify({ error: "Forbidden" })); return; }
         if (question) card.question = question;
         if (answer) card.answer = answer;
         res.writeHead(200);
@@ -103,6 +115,7 @@ function buildServer(stores, requestingUser = "auth0|alice") {
       const cardId = deleteCardMatch[1];
       const idx = stores.flashcards.findIndex((c) => c._id === cardId);
       if (idx === -1) { res.writeHead(404); res.end(JSON.stringify({ error: "Flashcard not found" })); return; }
+      if (ownsSet(stores.flashcards[idx].setId) === false) { res.writeHead(403); res.end(JSON.stringify({ error: "Forbidden" })); return; }
       stores.flashcards.splice(idx, 1);
       res.writeHead(200);
       res.end(JSON.stringify({ ok: true }));
@@ -175,6 +188,7 @@ test("GET /api/flashcard-sets/:id/cards — returns cards for set", async () => 
 
 test("POST /api/flashcard-sets/:id/cards — adds a card", async () => {
   const stores = createStores();
+  stores.materials.push({ _id: "m1", type: "flashcardSet", title: "S", ownerId: "auth0|alice" });
   stores.flashcardSets.push({ _id: "fs1", materialId: "m1" });
   const server = buildServer(stores);
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -192,6 +206,8 @@ test("POST /api/flashcard-sets/:id/cards — adds a card", async () => {
 
 test("PUT /api/materials/:id/cards — updates question and answer", async () => {
   const stores = createStores();
+  stores.materials.push({ _id: "m1", type: "flashcardSet", title: "S", ownerId: "auth0|alice" });
+  stores.flashcardSets.push({ _id: "fs1", materialId: "m1" });
   stores.flashcards.push({ _id: "c1", setId: "fs1", question: "Old Q", answer: "Old A" });
   const server = buildServer(stores);
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -208,6 +224,8 @@ test("PUT /api/materials/:id/cards — updates question and answer", async () =>
 
 test("DELETE /api/flashcards/:id — removes card", async () => {
   const stores = createStores();
+  stores.materials.push({ _id: "m1", type: "flashcardSet", title: "S", ownerId: "auth0|alice" });
+  stores.flashcardSets.push({ _id: "fs1", materialId: "m1" });
   stores.flashcards.push({ _id: "c1", setId: "fs1", question: "Q", answer: "A" });
   const server = buildServer(stores);
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -216,4 +234,52 @@ test("DELETE /api/flashcards/:id — removes card", async () => {
   await new Promise((r) => server.close(r));
   assert.strictEqual(res.status, 200);
   assert.strictEqual(stores.flashcards.length, 0);
+});
+
+function seedForeignSet(stores) {
+  stores.materials.push({ _id: "m9", type: "flashcardSet", title: "Bob's set", ownerId: "auth0|bob" });
+  stores.flashcardSets.push({ _id: "fs9", materialId: "m9" });
+  stores.flashcards.push({ _id: "c9", setId: "fs9", question: "Q", answer: "A" });
+}
+
+test("POST /api/flashcard-sets/:id/cards — non-owner returns 403", async () => {
+  const stores = createStores();
+  seedForeignSet(stores);
+  const server = buildServer(stores, "auth0|alice");
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const { port } = server.address();
+  const res = await fetch(`http://127.0.0.1:${port}/api/flashcard-sets/fs9/cards`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question: "Q2", answer: "A2" }),
+  });
+  await new Promise((r) => server.close(r));
+  assert.strictEqual(res.status, 403);
+  assert.strictEqual(stores.flashcards.length, 1);
+});
+
+test("PUT /api/materials/:id/cards — non-owner returns 403", async () => {
+  const stores = createStores();
+  seedForeignSet(stores);
+  const server = buildServer(stores, "auth0|alice");
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const { port } = server.address();
+  const res = await fetch(`http://127.0.0.1:${port}/api/materials/c9/cards`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question: "Hijacked" }),
+  });
+  await new Promise((r) => server.close(r));
+  assert.strictEqual(res.status, 403);
+  assert.strictEqual(stores.flashcards[0].question, "Q");
+});
+
+test("DELETE /api/flashcards/:id — non-owner returns 403", async () => {
+  const stores = createStores();
+  seedForeignSet(stores);
+  const server = buildServer(stores, "auth0|alice");
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const { port } = server.address();
+  const res = await fetch(`http://127.0.0.1:${port}/api/flashcards/c9`, { method: "DELETE" });
+  await new Promise((r) => server.close(r));
+  assert.strictEqual(res.status, 403);
+  assert.strictEqual(stores.flashcards.length, 1);
 });
