@@ -19,6 +19,18 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   useMaterial,
   useFlashcardSet,
@@ -40,6 +52,7 @@ type ViewMode = 'list' | 'study';
 
 export default function FlashcardsView() {
   const { materialId } = useParams<{ materialId: string }>();
+  const { user } = useAuth();
   const { data: material, isLoading: matLoading } = useMaterial(materialId);
   const { data: flashcardSet } = useFlashcardSet(materialId);
   const { data: flashcards = [], isLoading: cardsLoading } = useFlashcards(flashcardSet?.id);
@@ -59,9 +72,27 @@ export default function FlashcardsView() {
   const [editingCard, setEditingCard] = useState<string | null>(null);
   const [editQuestion, setEditQuestion] = useState('');
   const [editAnswer, setEditAnswer] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  // Study-mode traversal order; null = natural order
+  const [order, setOrder] = useState<number[] | null>(null);
 
   if (matLoading || cardsLoading) {
-    return <div className="p-6 text-muted-foreground">Loading flashcards...</div>;
+    return (
+      <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-4xl mx-auto animate-fade-in">
+        <div className="flex items-center gap-4 mb-6">
+          <Skeleton className="h-8 w-8 rounded-md" />
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+        </div>
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-20 w-full rounded-lg" />
+          ))}
+        </div>
+      </div>
+    );
   }
 
   if (!material || material.type !== 'flashcard_set') {
@@ -70,12 +101,16 @@ export default function FlashcardsView() {
 
   const topic = material.topicId ? topics.find((t) => t.id === material.topicId) : null;
   const group = topic?.groupIds?.[0] ? groups.find((g) => g.id === topic.groupIds[0]) : null;
+  const isOwner = material.ownerId === user?.id;
 
-  const currentCard = flashcards[currentIndex];
+  // Traverse in shuffled order when one is set (and still valid for this deck)
+  const orderedCards =
+    order && order.length === flashcards.length ? order.map((i) => flashcards[i]) : flashcards;
+  const currentCard = orderedCards[currentIndex];
   const progress = flashcards.length > 0 ? ((currentIndex + 1) / flashcards.length) * 100 : 0;
 
   const goNext = () => {
-    if (currentIndex < flashcards.length - 1) {
+    if (currentIndex < orderedCards.length - 1) {
       setCurrentIndex(currentIndex + 1);
       setIsFlipped(false);
     }
@@ -89,11 +124,18 @@ export default function FlashcardsView() {
   };
 
   const shuffle = () => {
-    setCurrentIndex(Math.floor(Math.random() * flashcards.length));
+    const indices = flashcards.map((_, i) => i);
+    for (let i = indices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+    setOrder(indices);
+    setCurrentIndex(0);
     setIsFlipped(false);
   };
 
   const reset = () => {
+    setOrder(null);
     setCurrentIndex(0);
     setIsFlipped(false);
   };
@@ -152,12 +194,15 @@ export default function FlashcardsView() {
     }
   };
 
-  const handleDelete = async (cardId: string) => {
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await deleteFlashcardMutation.mutateAsync(cardId);
+      await deleteFlashcardMutation.mutateAsync(deleteTarget);
       toast.success('Flashcard deleted!');
     } catch {
       toast.error('Failed to delete flashcard');
+    } finally {
+      setDeleteTarget(null);
     }
   };
 
@@ -200,6 +245,12 @@ export default function FlashcardsView() {
 
       {mode === 'list' ? (
         <div className="space-y-3">
+          {!isOwner && (
+            <p className="text-sm text-muted-foreground">
+              Shared with you — only the owner can add, edit, or delete cards.
+            </p>
+          )}
+          {isOwner && (
           <Card className="border-dashed">
             <CardContent className="p-4">
               {showAddForm ? (
@@ -224,6 +275,7 @@ export default function FlashcardsView() {
               )}
             </CardContent>
           </Card>
+          )}
 
           {flashcards.map((card, index) => (
             <Card key={card.id}>
@@ -253,14 +305,16 @@ export default function FlashcardsView() {
                       </div>
                       {!expandedCards.has(card.id) && <p className="text-xs text-primary mt-2">Click to reveal answer</p>}
                     </div>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="icon-sm" onClick={() => handleStartEdit(card.id, card.question, card.answer)}>
-                        <Edit2 className="w-4 h-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon-sm" className="text-destructive hover:text-destructive" onClick={() => handleDelete(card.id)}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
+                    {isOwner && (
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="icon-sm" aria-label="Edit flashcard" onClick={() => handleStartEdit(card.id, card.question, card.answer)}>
+                          <Edit2 className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon-sm" aria-label="Delete flashcard" className="text-destructive hover:text-destructive" onClick={() => setDeleteTarget(card.id)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>
@@ -319,6 +373,24 @@ export default function FlashcardsView() {
           )}
         </div>
       )}
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this flashcard?</AlertDialogTitle>
+            <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

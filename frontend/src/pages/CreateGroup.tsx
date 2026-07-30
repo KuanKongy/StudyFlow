@@ -120,7 +120,18 @@ export default function CreateGroup() {
                     <Button type="button" variant="outline" size="icon" onClick={() => setJoinCode(generateJoinCode())} title="Regenerate code">
                       <RefreshCw className="w-4 h-4" />
                     </Button>
-                    <Button type="button" variant="outline" size="icon" onClick={() => { navigator.clipboard.writeText(joinCode); toast.success('Code copied!'); }} title="Copy code">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() =>
+                        navigator.clipboard
+                          .writeText(joinCode)
+                          .then(() => toast.success('Code copied!'))
+                          .catch(() => toast.error("Couldn't copy — copy the code manually"))
+                      }
+                      title="Copy code"
+                    >
                       <Copy className="w-4 h-4" />
                     </Button>
                   </div>

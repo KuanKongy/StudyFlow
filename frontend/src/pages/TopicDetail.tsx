@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link, Navigate, useNavigate } from 'react-router-dom';
-import { Plus, FileText, FileCheck, Layers, Settings, X, Trash2 } from 'lucide-react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { Plus, FileText, FileCheck, Layers, Settings, X, Trash2, ArrowLeft, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -23,18 +23,24 @@ import {
   useTopics, useGroups, useTopicMaterials, useUpdateTopic, useDeleteTopic, useDeleteMaterial,
 } from '@/hooks/useApi';
 import { EmptyState } from '@/components/EmptyState';
+import { QueryError } from '@/components/QueryError';
 import { PrivacyBadge } from '@/components/PrivacyBadge';
 import { MaterialBadge } from '@/components/MaterialBadge';
 import { CharCounter } from '@/components/CharCounter';
 import { LIMITS } from '@/lib/validation';
 import { toast } from 'sonner';
 
+/** Hidden on desktop until hover/focus, but always visible on touch screens
+ *  where there is no hover state. */
+const revealOnHover =
+  'opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 transition-opacity';
+
 export default function TopicDetail() {
   const { topicId } = useParams<{ topicId: string }>();
   const navigate = useNavigate();
   const { setSelectedGroupId } = useStudy();
   const { user } = useAuth();
-  const { data: topics = [], isLoading: topicsLoading } = useTopics();
+  const { data: topics = [], isLoading: topicsLoading, isError: topicsError, refetch: refetchTopics } = useTopics();
   const { data: groups = [], isLoading: groupsLoading } = useGroups();
   const { data: materials = [], isLoading: materialsLoading } = useTopicMaterials(topicId ?? undefined);
   const updateTopicMutation = useUpdateTopic();
@@ -54,10 +60,35 @@ export default function TopicDetail() {
     if (topic?.groupIds?.[0]) {
       setSelectedGroupId(topic.groupIds[0]);
     }
+    return () => setSelectedGroupId(null);
   }, [topic?.groupIds, setSelectedGroupId]);
 
+  if (topicsError) {
+    return (
+      <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-6xl mx-auto animate-fade-in">
+        <QueryError title="Couldn't load this topic" onRetry={() => refetchTopics()} />
+      </div>
+    );
+  }
+
   if (!topicsLoading && !topic && topicId) {
-    return <Navigate to="/app/topics" replace />;
+    return (
+      <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-6xl mx-auto animate-fade-in">
+        <EmptyState
+          icon={FolderOpen}
+          title="Topic not found"
+          description="This topic may have been deleted, or you may not have access to it."
+          action={
+            <Link to="/app/topics">
+              <Button variant="outline">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Topics
+              </Button>
+            </Link>
+          }
+        />
+      </div>
+    );
   }
 
   if (isLoading || !topic) {
@@ -101,6 +132,7 @@ export default function TopicDetail() {
     if (newTitle.trim() && newTitle.trim() !== topic.title) updates.title = newTitle.trim();
     if (newDescription !== (topic.description || '')) updates.description = newDescription;
     if (Object.keys(updates).length === 0) {
+      toast.info('No changes to save');
       setSettingsOpen(false);
       return;
     }
@@ -246,6 +278,7 @@ export default function TopicDetail() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label={`Remove from ${g.name}`}
                               className="h-4 w-4 ml-1 hover:bg-destructive/20"
                               onClick={() => handleRemoveFromGroup(gId)}
                               disabled={updateTopicMutation.isPending}
@@ -322,7 +355,7 @@ export default function TopicDetail() {
               Notes
             </CardTitle>
             <Link to={`/app/notes/new?topicId=${topic.id}`}>
-              <Button variant="ghost" size="icon-sm"><Plus className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="icon-sm" aria-label="Add note"><Plus className="w-4 h-4" /></Button>
             </Link>
           </CardHeader>
           <CardContent>
@@ -357,7 +390,7 @@ export default function TopicDetail() {
                     {note.ownerId === user?.id && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon-sm" className="text-destructive hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button variant="ghost" size="icon-sm" aria-label="Delete material" className={`text-destructive hover:text-destructive shrink-0 ${revealOnHover}`}>
                             <Trash2 className="w-3.5 h-3.5" />
                           </Button>
                         </AlertDialogTrigger>
@@ -397,8 +430,15 @@ export default function TopicDetail() {
               <EmptyState
                 icon={<FileCheck className="w-6 h-6" />}
                 title="No summaries"
-                description="Generate from a note"
+                description={notes.length > 0
+                  ? 'Open a note and use AI Actions to generate a summary.'
+                  : 'Create a note first, then generate a summary from it with AI Actions.'}
                 className="py-8"
+                action={notes.length > 0 ? (
+                  <Link to={`/app/materials/${notes[0].id}/note`}>
+                    <Button size="sm" variant="outline">Open a note</Button>
+                  </Link>
+                ) : undefined}
               />
             ) : (
               <div className="space-y-2">
@@ -413,7 +453,7 @@ export default function TopicDetail() {
                     {s.ownerId === user?.id && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon-sm" className="text-destructive hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button variant="ghost" size="icon-sm" aria-label="Delete material" className={`text-destructive hover:text-destructive shrink-0 ${revealOnHover}`}>
                             <Trash2 className="w-3.5 h-3.5" />
                           </Button>
                         </AlertDialogTrigger>
@@ -444,7 +484,7 @@ export default function TopicDetail() {
               Flashcards
             </CardTitle>
             <Link to={`/app/flashcards/new?topicId=${topic.id}`}>
-              <Button variant="ghost" size="icon-sm"><Plus className="w-4 h-4" /></Button>
+              <Button variant="ghost" size="icon-sm" aria-label="Add flashcard set"><Plus className="w-4 h-4" /></Button>
             </Link>
           </CardHeader>
           <CardContent>
@@ -477,7 +517,7 @@ export default function TopicDetail() {
                     {set.ownerId === user?.id && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon-sm" className="text-destructive hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button variant="ghost" size="icon-sm" aria-label="Delete material" className={`text-destructive hover:text-destructive shrink-0 ${revealOnHover}`}>
                             <Trash2 className="w-3.5 h-3.5" />
                           </Button>
                         </AlertDialogTrigger>

@@ -11,7 +11,7 @@ const SIGN_IN_AGAIN_COPY = {
 } as const;
 
 export default function Login() {
-  const { isAuthenticated, login, isLoading, error } = useAuth();
+  const { isAuthenticated, login, isLoading, error, retryProfile } = useAuth();
 
   if (isLoading) {
     return (
@@ -77,6 +77,9 @@ export default function Login() {
             >
               <p className="font-medium text-amber-950 dark:text-amber-100 mb-1">{SIGN_IN_AGAIN_COPY.title}</p>
               <p className="text-muted-foreground leading-snug">{SIGN_IN_AGAIN_COPY.body}</p>
+              <Button variant="outline" size="sm" className="mt-2" onClick={retryProfile}>
+                Try again
+              </Button>
             </div>
           )}
           <Button onClick={login} variant="hero" size="xl" className="w-full">Get started</Button>

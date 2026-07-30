@@ -10,6 +10,7 @@ import {
 import { useTopics, useGroups, useAllMaterials, useBatchDeleteTopics } from '@/hooks/useApi';
 import { useAuth } from '@/contexts/AuthContext';
 import { EmptyState } from '@/components/EmptyState';
+import { QueryError } from '@/components/QueryError';
 import { PrivacyBadge } from '@/components/PrivacyBadge';
 import { MaterialBadge } from '@/components/MaterialBadge';
 import { toast } from 'sonner';
@@ -19,7 +20,7 @@ type Filter = 'all' | 'mine' | 'shared';
 export default function Topics() {
   const [filter, setFilter] = useState<Filter>('all');
   const { user } = useAuth();
-  const { data: topics = [], isLoading: topicsLoading } = useTopics();
+  const { data: topics = [], isLoading: topicsLoading, isError: topicsError, refetch: refetchTopics } = useTopics();
   const { data: groups = [], isLoading: groupsLoading } = useGroups();
   const { data: allMaterials = [], isLoading: materialsLoading } = useAllMaterials();
   const batchDelete = useBatchDeleteTopics();
@@ -94,7 +95,9 @@ export default function Topics() {
         ))}
       </div>
 
-      {isLoading ? (
+      {topicsError ? (
+        <QueryError title="Couldn't load topics" onRetry={() => refetchTopics()} />
+      ) : isLoading ? (
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
             <Card key={i} className="animate-pulse">

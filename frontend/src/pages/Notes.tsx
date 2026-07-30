@@ -10,13 +10,14 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useAllMaterials, useTopics, useBatchDeleteMaterials } from '@/hooks/useApi';
 import { EmptyState } from '@/components/EmptyState';
+import { QueryError } from '@/components/QueryError';
 import { toast } from 'sonner';
 
 type Filter = 'all' | 'mine' | 'shared';
 
 export default function Notes() {
   const [filter, setFilter] = useState<Filter>('all');
-  const { data: materials = [], isLoading } = useAllMaterials(filter);
+  const { data: materials = [], isLoading, isError, refetch } = useAllMaterials(filter);
   const { data: topics = [] } = useTopics();
   const batchDelete = useBatchDeleteMaterials();
 
@@ -81,7 +82,9 @@ export default function Notes() {
         ))}
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <QueryError title="Couldn't load notes" onRetry={() => refetch()} />
+      ) : isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3].map((i) => (
             <Card key={i} className="animate-pulse">

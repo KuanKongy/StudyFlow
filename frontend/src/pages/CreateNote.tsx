@@ -13,7 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAuth } from '@/contexts/AuthContext';
 import { useTopics, useCreateNote } from '@/hooks/useApi';
 import { toast } from 'sonner';
 import { CharCounter } from '@/components/CharCounter';
@@ -26,13 +25,10 @@ export default function CreateNote() {
 
   const { data: topics = [] } = useTopics();
   const createNote = useCreateNote();
-  const { user } = useAuth();
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [topicId, setTopicId] = useState(topicIdFromUrl || '');
-
-  const accessibleTopics = topics;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,16 +37,24 @@ export default function CreateNote() {
       toast.error('Please enter a title');
       return;
     }
+    if (!topicId) {
+      toast.error('Please pick a topic — every note lives inside one');
+      return;
+    }
+    if (!content.trim()) {
+      toast.error('Please write some content first');
+      return;
+    }
 
     try {
       const result = await createNote.mutateAsync({
         title: title.trim(),
-        topicId: topicId || '',
-        content: content || '',
+        topicId,
+        content,
       });
       toast.success(`Created "${title}"!`);
       navigate(`/app/materials/${result.materialId}/note`);
-    } catch (err) {
+    } catch {
       toast.error('Failed to create note');
     }
   };
@@ -91,24 +95,29 @@ export default function CreateNote() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="topic">Topic (optional)</Label>
-              <Select value={topicId || 'none'} onValueChange={(val) => setTopicId(val === 'none' ? '' : val)}>
-                <SelectTrigger>
+              <Label htmlFor="topic">Topic *</Label>
+              <Select value={topicId || undefined} onValueChange={setTopicId}>
+                <SelectTrigger id="topic">
                   <SelectValue placeholder="Select a topic" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No topic</SelectItem>
-                  {accessibleTopics.map((topic) => (
+                  {topics.map((topic) => (
                     <SelectItem key={topic.id} value={topic.id}>
                       {topic.title}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {topics.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  You don't have any topics yet —{' '}
+                  <Link to="/app/topics/new" className="text-primary underline">create one first</Link>.
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="content">Content (optional)</Label>
+              <Label htmlFor="content">Content *</Label>
               <Textarea
                 id="content"
                 value={content}

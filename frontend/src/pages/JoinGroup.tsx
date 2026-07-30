@@ -38,8 +38,11 @@ export default function JoinGroup() {
       const group = await joinGroupMutation.mutateAsync(joinCode.trim());
       toast.success(`Joined "${group.name}" successfully!`);
       navigate(`/app/groups/${group.id}`);
-    } catch {
-      toast.error('Invalid join code');
+    } catch (err) {
+      const status = (err as { status?: number })?.status;
+      if (status === 404) toast.error('Invalid join code — double-check it and try again');
+      else if (status !== undefined) toast.error('Could not join the group — please try again');
+      else toast.error("Couldn't reach the server — check your connection");
     }
   };
 
@@ -98,8 +101,9 @@ export default function JoinGroup() {
               <Input
                 id="joinCode"
                 value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value)}
-                placeholder="e.g., CS101-XYZ"
+                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                placeholder="6-character code, e.g. A7X2QK"
+                className="font-mono tracking-wider"
               />
             </div>
             <Button

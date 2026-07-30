@@ -11,6 +11,8 @@ interface AuthContextType {
   logout: () => void;
   getToken: TokenGetter;
   refreshUser: () => Promise<void>;
+  /** Re-attempts the profile fetch after a transient failure. */
+  retryProfile: () => void;
   /** True when sign-in failed; UI should show a static message only (never raw Auth0 errors). */
   error: boolean;
 }
@@ -30,7 +32,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
-  const fetchAttempted = useRef(false);
+  // Bumping this re-runs the profile fetch after a transient failure —
+  // a single failed /api/me must not strand the user until a hard reload.
+  const [fetchAttempt, setFetchAttempt] = useState(0);
+  const fetchInFlight = useRef(false);
 
   const getToken: TokenGetter = useCallback(async () => {
     return getAccessTokenSilently();
@@ -43,7 +48,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     setUser(null);
     setProfileError(null);
-    fetchAttempted.current = false;
     auth0Logout({ logoutParams: { returnTo: window.location.origin } });
   }, [auth0Logout]);
 
@@ -56,13 +60,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [getToken]);
 
+  const retryProfile = useCallback(() => {
+    setProfileError(null);
+    setFetchAttempt((n) => n + 1);
+  }, []);
+
   useEffect(() => {
-    if (auth0Loading || !auth0IsAuth || fetchAttempted.current) return;
-    fetchAttempted.current = true;
+    if (auth0Loading || !auth0IsAuth || user || profileError || fetchInFlight.current) return;
+    fetchInFlight.current = true;
 
     let cancelled = false;
     setProfileLoading(true);
-    setProfileError(null);
 
     fetchMe(getToken)
       .then((u) => {
@@ -73,11 +81,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!cancelled) setProfileError(err?.message ?? String(err));
       })
       .finally(() => {
+        fetchInFlight.current = false;
         if (!cancelled) setProfileLoading(false);
       });
 
     return () => { cancelled = true; };
-  }, [auth0IsAuth, auth0Loading, getToken]);
+  }, [auth0IsAuth, auth0Loading, user, profileError, fetchAttempt, getToken]);
 
   useEffect(() => {
     if (auth0Error) console.error('Auth0 error:', auth0Error);
@@ -97,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         getToken,
         refreshUser,
+        retryProfile,
         error: authFailed,
       }}
     >

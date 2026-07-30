@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link, Navigate } from 'react-router-dom';
-import { ArrowLeft, Save, Sparkles, Layers, CheckCircle, ChevronDown } from 'lucide-react';
+import { useParams, Link, Navigate, useNavigate } from 'react-router-dom';
+import { ArrowLeft, Save, Sparkles, Layers, CheckCircle, ChevronDown, Eye, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,8 +22,10 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useStudy } from '@/contexts/StudyContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { MaterialBadge } from '@/components/MaterialBadge';
 import { PrivacyBadge } from '@/components/PrivacyBadge';
+import { EmptyState } from '@/components/EmptyState';
 import {
   useMaterial,
   useNote,
@@ -38,14 +41,17 @@ import { LIMITS } from '@/lib/validation';
 
 export default function NoteView() {
   const { materialId } = useParams<{ materialId: string }>();
+  const navigate = useNavigate();
   const { aiDisclosureAccepted, setAiDisclosureAccepted } = useStudy();
+  const { user } = useAuth();
   const [content, setContent] = useState('');
   const [isSaved, setIsSaved] = useState(true);
   const [showAiDisclosure, setShowAiDisclosure] = useState(false);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [pendingAiAction, setPendingAiAction] = useState<'summary' | 'flashcards' | null>(null);
 
-  const { data: material } = useMaterial(materialId);
-  const { data: note } = useNote(materialId);
+  const { data: material, isLoading: materialLoading, isError: materialError } = useMaterial(materialId);
+  const { data: note, isLoading: noteLoading, isError: noteError } = useNote(materialId);
   const updateNote = useUpdateNote();
   const generateSummary = useGenerateSummary();
   const generateFlashcards = useGenerateFlashcards();
@@ -54,12 +60,26 @@ export default function NoteView() {
 
   const topic = material?.topicId ? topics.find((t) => t.id === material.topicId) : null;
   const group = topic?.groupIds?.[0] ? groups.find((g) => g.id === topic.groupIds[0]) : null;
+  const isOwner = !!material && material.ownerId === user?.id;
+  const backTo = material?.topicId ? `/app/topics/${material.topicId}` : '/app/notes';
 
   useEffect(() => {
     if (note?.content !== undefined) {
       setContent(note.content);
+      setIsSaved(true);
     }
   }, [note?.content]);
+
+  // Warn before the tab closes or reloads with unsaved edits
+  useEffect(() => {
+    if (isSaved) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [isSaved]);
 
   const handleContentChange = (value: string) => {
     setContent(value);
@@ -76,8 +96,27 @@ export default function NoteView() {
       });
       setIsSaved(true);
       toast.success('Note saved!');
-    } catch (err) {
+    } catch {
       toast.error('Failed to save note');
+    }
+  };
+
+  const handleBack = () => {
+    if (!isSaved && isOwner) {
+      setShowLeaveConfirm(true);
+      return;
+    }
+    navigate(backTo);
+  };
+
+  const handleSaveAndLeave = async () => {
+    if (!materialId || !material) return;
+    try {
+      await updateNote.mutateAsync({ materialId, title: material.title, content });
+      navigate(backTo);
+    } catch {
+      toast.error('Failed to save note — staying on this page');
+      setShowLeaveConfirm(false);
     }
   };
 
@@ -86,30 +125,28 @@ export default function NoteView() {
     const mutation = action === 'summary' ? generateSummary : generateFlashcards;
     try {
       await mutation.mutateAsync(materialId);
-      toast.success(action === 'summary' ? 'Summary generation started!' : 'Flashcard generation started!');
+      toast.success(
+        action === 'summary'
+          ? 'Summary generation started! Track it under AI Jobs.'
+          : 'Flashcard generation started! Track it under AI Jobs.'
+      );
     } catch (err) {
-      toast.error(`Failed to start ${action} generation`);
+      const status = (err as { status?: number })?.status;
+      if (status === 429) toast.error('AI rate limit reached — try again in an hour.');
+      else if (status === 503) toast.error('AI is temporarily unavailable — try again shortly.');
+      else toast.error(`Failed to start ${action} generation`);
     } finally {
       setPendingAiAction(null);
     }
   };
 
-  const handleGenerateSummary = () => {
+  const handleAiAction = (action: 'summary' | 'flashcards') => {
     if (!aiDisclosureAccepted) {
-      setPendingAiAction('summary');
+      setPendingAiAction(action);
       setShowAiDisclosure(true);
       return;
     }
-    runAiAction('summary');
-  };
-
-  const handleGenerateFlashcards = () => {
-    if (!aiDisclosureAccepted) {
-      setPendingAiAction('flashcards');
-      setShowAiDisclosure(true);
-      return;
-    }
-    runAiAction('flashcards');
+    runAiAction(action);
   };
 
   const handleAiDisclosureAccept = () => {
@@ -131,8 +168,39 @@ export default function NoteView() {
     return <Navigate to="/app/topics" replace />;
   }
 
-  if (!material) {
-    return null;
+  if (materialLoading || noteLoading) {
+    return (
+      <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
+        <div className="flex items-center gap-4 mb-6">
+          <Skeleton className="h-8 w-8 rounded-md" />
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+        </div>
+        <Skeleton className="h-[500px] w-full rounded-lg" />
+      </div>
+    );
+  }
+
+  if (materialError || noteError || !material) {
+    return (
+      <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
+        <EmptyState
+          icon={FileText}
+          title="Note not found"
+          description="This note may have been deleted, or you may not have access to it."
+          action={
+            <Link to="/app/notes">
+              <Button variant="outline">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Notes
+              </Button>
+            </Link>
+          }
+        />
+      </div>
+    );
   }
 
   if (material.type !== 'note') {
@@ -156,17 +224,41 @@ export default function NoteView() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={showLeaveConfirm} onOpenChange={setShowLeaveConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsaved changes</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have unsaved edits to this note. Save them before leaving?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <Button variant="outline" onClick={() => navigate(backTo)}>
+              Discard changes
+            </Button>
+            <AlertDialogAction onClick={handleSaveAndLeave} disabled={updateNote.isPending}>
+              {updateNote.isPending ? 'Saving…' : 'Save & leave'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-          <Link to={material.topicId ? `/app/topics/${material.topicId}` : '/app'}>
-            <Button variant="ghost" size="icon-sm">
-              <ArrowLeft className="w-4 h-4" />
-            </Button>
-          </Link>
+          <Button variant="ghost" size="icon-sm" onClick={handleBack} aria-label="Back">
+            <ArrowLeft className="w-4 h-4" />
+          </Button>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="min-w-0 break-words text-xl font-bold">{material.title}</h1>
               <MaterialBadge type="note" />
+              {!isOwner && (
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground border rounded-full px-2 py-0.5">
+                  <Eye className="w-3 h-3" />
+                  Read-only
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2 mt-1">
               {topic && (
@@ -189,30 +281,34 @@ export default function NoteView() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleGenerateSummary} disabled={isGenerating}>
+              <DropdownMenuItem onClick={() => handleAiAction('summary')} disabled={isGenerating}>
                 <Sparkles className="w-4 h-4 mr-2" />
                 {generateSummary.isPending ? 'Generating...' : 'Generate Summary'}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleGenerateFlashcards} disabled={isGenerating}>
+              <DropdownMenuItem onClick={() => handleAiAction('flashcards')} disabled={isGenerating}>
                 <Layers className="w-4 h-4 mr-2" />
                 {generateFlashcards.isPending ? 'Generating...' : 'Generate Flashcards'}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Button variant="outline" size="sm" onClick={handleSave} disabled={isSaved || updateNote.isPending}>
-            {isSaved ? (
-              <>
-                <CheckCircle className="w-4 h-4 mr-1 text-success" />
-                Saved
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4 mr-1" />
-                Save
-              </>
-            )}
-          </Button>
+          {isOwner && (
+            <Button variant="outline" size="sm" onClick={handleSave} disabled={isSaved || updateNote.isPending}>
+              {updateNote.isPending ? (
+                'Saving…'
+              ) : isSaved ? (
+                <>
+                  <CheckCircle className="w-4 h-4 mr-1 text-success" />
+                  Saved
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-1" />
+                  Save
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -224,8 +320,17 @@ export default function NoteView() {
             className="flex-1 min-h-[500px] border-0 rounded-lg font-mono text-sm resize-none focus-visible:ring-0 overflow-auto"
             placeholder="Start writing..."
             maxLength={LIMITS.NOTE_CONTENT}
+            readOnly={!isOwner}
+            aria-label="Note content"
           />
-          <div className="px-4 pb-2 flex justify-end">
+          <div className="px-4 pb-2 flex items-center justify-between gap-2">
+            <span className="text-xs text-muted-foreground">
+              {!isOwner
+                ? 'Shared with you — only the owner can edit this note.'
+                : isSaved
+                  ? ''
+                  : 'Unsaved changes'}
+            </span>
             <CharCounter current={content.length} max={LIMITS.NOTE_CONTENT} />
           </div>
         </CardContent>

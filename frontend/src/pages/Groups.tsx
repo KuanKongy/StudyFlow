@@ -7,10 +7,11 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useGroups, useUsers } from '@/hooks/useApi';
 import { EmptyState } from '@/components/EmptyState';
+import { QueryError } from '@/components/QueryError';
 import { UserProfileModal } from '@/components/UserProfileModal';
 
 export default function Groups() {
-  const { data: myGroups = [], isLoading } = useGroups();
+  const { data: myGroups = [], isLoading, isError, refetch } = useGroups();
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
 
   const ownerIds = [...new Set(myGroups.map((g) => g.ownerId))];
@@ -20,11 +21,21 @@ export default function Groups() {
 
   const getUserById = (authId: string) => users.find((u) => u.id === authId || u.authId === authId);
 
+  if (isError) {
+    return (
+      <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
+        <QueryError title="Couldn't load groups" onRetry={() => refetch()} />
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
-        <div className="flex items-center justify-center py-12">
-          <p className="text-muted-foreground">Loading groups...</p>
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-24 bg-muted rounded-lg animate-pulse" />
+          ))}
         </div>
       </div>
     );

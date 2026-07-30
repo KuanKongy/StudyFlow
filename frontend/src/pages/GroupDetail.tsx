@@ -95,10 +95,14 @@ export default function GroupDetail() {
 
   const copyJoinCode = () => {
     if (group.joinCode) {
-      navigator.clipboard.writeText(group.joinCode);
-      setCopied(true);
-      toast.success('Join code copied to clipboard!');
-      setTimeout(() => setCopied(false), 2000);
+      navigator.clipboard
+        .writeText(group.joinCode)
+        .then(() => {
+          setCopied(true);
+          toast.success('Join code copied to clipboard!');
+          setTimeout(() => setCopied(false), 2000);
+        })
+        .catch(() => toast.error("Couldn't copy — copy the code manually"));
     }
   };
 
@@ -515,7 +519,6 @@ export default function GroupDetail() {
               <div className="text-center space-y-1">
                 <p className="text-lg font-semibold">{profileUser.name || profileUser.username}</p>
                 <p className="text-sm text-muted-foreground">@{profileUser.username}</p>
-                <p className="text-sm text-muted-foreground">{profileUser.email}</p>
                 <p className="text-xs text-muted-foreground">
                   Member since {new Date(profileUser.createdAt).toLocaleDateString()}
                 </p>

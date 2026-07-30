@@ -11,8 +11,8 @@ import { EmptyState } from '@/components/EmptyState';
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const { data: groups = [] } = useGroups();
-  const { data: materials = [] } = useAllMaterials();
+  const { data: groups = [], isLoading: groupsLoading } = useGroups();
+  const { data: materials = [], isLoading: materialsLoading } = useAllMaterials();
   const { data: jobs = [] } = useJobs();
   const { data: topics = [] } = useTopics();
 
@@ -25,7 +25,7 @@ export default function Dashboard() {
   );
 
   const activeJobs = useMemo(
-    () => jobs.filter((j) => j.status === 'queued' || j.status === 'processing'),
+    () => jobs.filter((j) => ['queued', 'processing', 'retrying'].includes(j.status)),
     [jobs]
   );
 
@@ -115,7 +115,13 @@ export default function Dashboard() {
               </Link>
             </CardHeader>
             <CardContent>
-              {recentMaterials.length === 0 ? (
+              {materialsLoading ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-14 bg-muted rounded-lg animate-pulse" />
+                  ))}
+                </div>
+              ) : recentMaterials.length === 0 ? (
                 <EmptyState
                   icon={<FileText className="w-8 h-8" />}
                   title="No materials yet"
@@ -217,7 +223,13 @@ export default function Dashboard() {
               </Link>
             </CardHeader>
             <CardContent>
-              {groups.length === 0 ? (
+              {groupsLoading ? (
+                <div className="space-y-2">
+                  {[1, 2].map((i) => (
+                    <div key={i} className="h-12 bg-muted rounded-lg animate-pulse" />
+                  ))}
+                </div>
+              ) : groups.length === 0 ? (
                 <EmptyState
                   icon={<Users className="w-6 h-6" />}
                   title="No groups"

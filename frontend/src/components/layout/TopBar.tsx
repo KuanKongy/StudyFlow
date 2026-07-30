@@ -22,7 +22,7 @@ export function TopBar({ onMenuClick }: TopBarProps) {
   const { data: jobs = [] } = useJobs();
 
   const activeJobs = jobs.filter((j) =>
-    ['queued', 'pending', 'processing', 'retrying'].includes(j.status)
+    ['queued', 'processing', 'retrying'].includes(j.status)
   );
 
   return (
