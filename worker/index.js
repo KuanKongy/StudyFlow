@@ -1,6 +1,8 @@
 import { MongoClient, ObjectId } from "mongodb";
 import { createClient } from "redis";
 import OpenAI from "openai";
+import dotenv from "dotenv";
+dotenv.config();
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -66,6 +68,13 @@ async function failJob(job, errorMessage) {
     { _id: job._id },
     { $set: { status: "failed", error: errorMessage } }
   );
+  // Overwrite the API's short-lived status cache so a failed job never
+  // reports a stale "queued"/"processing" to the client.
+  try {
+    await redis.set(`job:${job._id.toString()}`, "failed", { EX: 30 });
+  } catch (err) {
+    log("warn", "job_cache_write_error", { err: err?.message || String(err) });
+  }
 }
 
 async function callOpenAI(messages, temperature, job) {
@@ -151,6 +160,7 @@ while (true) {
 
   try {
     await handler(jobDoc);
+    log("info", "job_completed", { jobId, requestId: jobDoc.requestId });
   } catch (err) {
     log("error", "job_handler_error", {
       jobId,
@@ -159,8 +169,6 @@ while (true) {
     });
     await failJob(jobDoc, err.message);
   }
-
-  log("info", "job_completed", { jobId, requestId: jobDoc.requestId });
 }
 
 async function handleGenerateFlashcards(job) {
@@ -233,6 +241,11 @@ async function handleGenerateFlashcards(job) {
   }
 
   const inputMaterial = await StudyMaterials.findOne({ _id: job.inputMaterialId });
+  if (!inputMaterial) {
+    // Source note was deleted while the job sat in the queue
+    await failJob(job, "Input material no longer exists");
+    return;
+  }
   const { insertedId: materialId } = await StudyMaterials.insertOne({
     type: "flashcardSet",
     title: aiResult.setTitle,
@@ -312,6 +325,11 @@ async function handleGenerateSummary(job) {
   const summaryText = response.choices[0].message.content;
 
   const inputMaterial = await StudyMaterials.findOne({ _id: job.inputMaterialId });
+  if (!inputMaterial) {
+    // Source note was deleted while the job sat in the queue
+    await failJob(job, "Input material no longer exists");
+    return;
+  }
   const { insertedId: materialId } = await StudyMaterials.insertOne({
     type: "summary",
     title: `Summary: ${inputMaterial.title}`,

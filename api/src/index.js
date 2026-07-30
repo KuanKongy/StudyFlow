@@ -299,13 +299,22 @@ app.put("/api/me", async (req, res) => {
   res.json(user);
 });
 
-// Batch user lookup by authIds (for member display)
+// Batch user lookup by authIds (for member display).
+// Only resolves users who share a group with the caller, and never returns emails.
 app.post("/api/users/batch", async (req, res) => {
   const { authIds } = req.body;
   if (!authIds || !Array.isArray(authIds)) {
     return res.status(400).json({ error: "authIds array required" });
   }
-  const users = await Users.find({ authId: { $in: authIds } }).toArray();
+  const caller = req.auth.payload.sub;
+  const callerGroups = await Groups.find({ memberIds: caller }).toArray();
+  const visibleIds = new Set(callerGroups.flatMap(g => g.memberIds || []));
+  visibleIds.add(caller);
+  const ids = authIds.filter(id => typeof id === "string" && visibleIds.has(id));
+  const users = await Users.find(
+    { authId: { $in: ids } },
+    { projection: { email: 0 } }
+  ).toArray();
   res.json(users);
 });
 
@@ -360,6 +369,9 @@ app.post("/api/notes", async (req, res) => {
   if (!content || !title || !topicId) {
     return res.status(400).json({ error: "missing data required" });
   }
+  if (!ObjectId.isValid(topicId)) {
+    return res.status(400).json({ error: "Invalid topicId" });
+  }
   const topicDoc = await Topics.findOne({ _id: new ObjectId(topicId) });
   if (!topicDoc) {
     return res.status(404).json({ error: "Topic not found" });
@@ -383,21 +395,25 @@ app.post("/api/notes", async (req, res) => {
 });
 
 // AI job endpoints — gov-002 (amended): requires access to source note (ownership or group membership)
+// Runs before the rate limiter so invalid or forbidden requests never consume quota.
+const loadAiInputMaterial = async (req, res, next) => {
+  const material = await StudyMaterials.findOne({ _id: new ObjectId(req.params.id) });
+  if (!material || material.type !== "note") {
+    return res.status(400).json({ error: "Invalid input material" });
+  }
+  const allowed = await canAccessMaterial(material, req.auth.payload.sub);
+  if (!allowed) {
+    return res.status(403).json({ error: "Forbidden — you do not have access to this material" });
+  }
+  req.aiInputMaterial = material;
+  next();
+};
+
 function enqueueAiJob(jobType) {
   return async (req, res) => {
-    const inputMaterialId = new ObjectId(req.params.id);
-    const material = await StudyMaterials.findOne({ _id: inputMaterialId });
-    if (!material || material.type !== "note") {
-      return res.status(400).json({ error: "Invalid input material" });
-    }
-    const allowed = await canAccessMaterial(material, req.auth.payload.sub);
-    if (!allowed) {
-      return res.status(403).json({ error: "Forbidden — you do not have access to this material" });
-    }
-
     const job = {
       type: jobType,
-      inputMaterialId,
+      inputMaterialId: req.aiInputMaterial._id,
       ownerId: req.auth.payload.sub,
       status: "queued",
       retries: 0,
@@ -410,8 +426,9 @@ function enqueueAiJob(jobType) {
   };
 }
 
-app.post("/api/materials/:id/flashcards", validateId, aiRateLimiter, aiCircuitBreaker, enqueueAiJob("GENERATE_FLASHCARDS"));
-app.post("/api/materials/:id/summary", validateId, aiRateLimiter, aiCircuitBreaker, enqueueAiJob("GENERATE_SUMMARY"));
+const aiJobMiddleware = [validateId, loadAiInputMaterial, aiCircuitBreaker, aiRateLimiter];
+app.post("/api/materials/:id/flashcards", ...aiJobMiddleware, enqueueAiJob("GENERATE_FLASHCARDS"));
+app.post("/api/materials/:id/summary", ...aiJobMiddleware, enqueueAiJob("GENERATE_SUMMARY"));
 
 // ===================== Jobs =====================
 
@@ -529,32 +546,31 @@ app.get("/api/materials/:id/note", validateId, async (req, res) => {
   res.json(note);
 });
 
+// auth-007: note writes are owner-only (group members get read access, not write)
 app.put("/api/materials/:id/note", validateId, async (req, res) => {
   try {
     const { title, content } = req.body;
     const materialId = new ObjectId(req.params.id);
     const existing = await StudyMaterials.findOne({ _id: materialId });
     if (!existing) return res.status(404).json({ error: "Material not found" });
-    const allowed = await canAccessMaterial(existing, req.auth.payload.sub);
-    if (!allowed) {
-      return res.status(403).json({ error: "Forbidden" });
+    if (existing.ownerId !== req.auth.payload.sub) {
+      return res.status(403).json({ error: "Forbidden — only the owner can edit this note" });
     }
-    const material = await StudyMaterials.updateOne(
-      { _id: materialId },
-      { $set: { title, updatedAt: Date.now() } }
-    );
-    const note = await Notes.updateOne(
+    const noteUpdate = await Notes.updateOne(
       { materialId },
       { $set: { content } }
     );
-    if (note.matchedCount === 0) {
+    if (noteUpdate.matchedCount === 0) {
       return res.status(404).json({ error: "Note not found" });
     }
-    const studyMaterial = await StudyMaterials.findOne({ _id: materialId });
-    if (studyMaterial?.topicId) {
-      await redis.del(`topic:${studyMaterial.topicId}:materials`);
+    await StudyMaterials.updateOne(
+      { _id: materialId },
+      { $set: { title, updatedAt: Date.now() } }
+    );
+    if (existing.topicId) {
+      await redis.del(`topic:${existing.topicId}:materials`);
     }
-    res.json([note, material]);
+    res.json({ ok: true, materialId });
   } catch (error) {
     log("error", "put_note_error", {
       requestId: req.requestId,
@@ -580,12 +596,12 @@ app.delete("/api/materials/:id/note", validateId, async (req, res) => {
     for (const s of derivedSummaries) {
       await deleteMaterialCascade(s._id);
     }
-    const note = await Notes.deleteOne({ materialId });
-    const material = await StudyMaterials.deleteOne({ _id: materialId });
+    await Notes.deleteOne({ materialId });
+    await StudyMaterials.deleteOne({ _id: materialId });
     if (studyMaterial?.topicId) {
       await redis.del(`topic:${studyMaterial.topicId}:materials`);
     }
-    res.json([note, material]);
+    res.json({ ok: true, materialId });
   } catch (error) {
     log("error", "delete_note_error", {
       requestId: req.requestId,
@@ -600,6 +616,9 @@ app.delete("/api/materials/:id/note", validateId, async (req, res) => {
 app.post("/api/flashcard-sets", async (req, res) => {
   const { title, topicId, cards } = req.body;
   if (!title || !topicId) return res.status(400).json({ error: "title and topicId required" });
+  if (!ObjectId.isValid(topicId)) {
+    return res.status(400).json({ error: "Invalid topicId" });
+  }
   const userId = req.auth.payload.sub;
   const topicDoc = await Topics.findOne({ _id: new ObjectId(topicId) });
   if (!topicDoc) {
@@ -674,17 +693,22 @@ app.get("/api/flashcard-sets/:id/cards", validateId, async (req, res) => {
   }
 });
 
+// Card writes are owner-only (matches note writes and the ToS ownership promise)
 app.put("/api/materials/:id/cards", validateId, async (req, res) => {
   const { setId, question, answer } = req.body;
   const flashcardId = req.params.id;
   if (!setId && !question && !answer) return res.status(400).json({ error: "Need to include one of: setId, question, or answer" });
+  if (setId && !ObjectId.isValid(setId)) {
+    return res.status(400).json({ error: "Invalid setId" });
+  }
   const { card, set, material } = await getFlashcardAccessContext(new ObjectId(flashcardId));
   if (!card) return res.status(404).json({ error: "Flashcard not found" });
   if (!set || !material) return res.status(404).json({ error: "Flashcard set or material not found" });
-  const allowed = await canAccessMaterial(material, req.auth.payload.sub);
-  if (!allowed) return res.status(403).json({ error: "Forbidden" });
+  if (material.ownerId !== req.auth.payload.sub) {
+    return res.status(403).json({ error: "Forbidden — only the owner can edit flashcards" });
+  }
   const updateDoc = { $set: { updatedAt: Date.now() } };
-  if (setId) updateDoc.$set.setId = setId;
+  if (setId) updateDoc.$set.setId = new ObjectId(setId);
   if (question) updateDoc.$set.question = question;
   if (answer) updateDoc.$set.answer = answer;
   const result = await Flashcards.updateOne({ _id: new ObjectId(flashcardId) }, updateDoc);
@@ -705,8 +729,9 @@ app.post("/api/flashcard-sets/:id/cards", validateId, async (req, res) => {
   const { set, material } = await getMaterialForFlashcardSet(new ObjectId(setId));
   if (!set) return res.status(404).json({ error: "Flashcard set not found" });
   if (!material) return res.status(404).json({ error: "Material not found" });
-  const allowed = await canAccessMaterial(material, req.auth.payload.sub);
-  if (!allowed) return res.status(403).json({ error: "Forbidden" });
+  if (material.ownerId !== req.auth.payload.sub) {
+    return res.status(403).json({ error: "Forbidden — only the owner can add flashcards" });
+  }
   const card = {
     setId: new ObjectId(setId),
     question,
@@ -724,8 +749,9 @@ app.delete("/api/flashcards/:id", validateId, async (req, res) => {
   const { card, set, material } = await getFlashcardAccessContext(new ObjectId(cardId));
   if (!card) return res.status(404).json({ error: "Flashcard not found" });
   if (!set || !material) return res.status(404).json({ error: "Flashcard set or material not found" });
-  const allowed = await canAccessMaterial(material, req.auth.payload.sub);
-  if (!allowed) return res.status(403).json({ error: "Forbidden" });
+  if (material.ownerId !== req.auth.payload.sub) {
+    return res.status(403).json({ error: "Forbidden — only the owner can delete flashcards" });
+  }
   await Flashcards.deleteOne({ _id: new ObjectId(cardId) });
   if (card.setId) {
     await redis.del(`set:${card.setId.toString()}:cards`);
@@ -854,6 +880,7 @@ app.delete("/api/groups/:id", validateId, async (req, res) => {
     return res.status(403).json({ error: "Forbidden — only the group owner can delete this group" });
   }
   await Topics.updateMany({ groupIds: groupOid }, { $pull: { groupIds: groupOid } });
+  await GroupAuditLog.deleteMany({ groupId: groupOid });
   await Groups.deleteOne({ _id: groupOid });
   res.json({ message: "Group deleted successfully", groupId });
 });
@@ -887,33 +914,51 @@ app.post("/api/groups/:id/members", validateId, async (req, res) => {
   res.json({ ok: true });
 });
 
+// True when `userId` can still reach the topic after the removal: they own it,
+// or they are a member of one of the topic's (remaining) groups.
+async function userStillHasTopicAccess(topic, userId, excludeGroupOid) {
+  if (topic.ownerId === userId) return true;
+  const remaining = (topic.groupIds || []).filter(g => !g.equals(excludeGroupOid));
+  if (remaining.length === 0) return false;
+  const group = await Groups.findOne({ _id: { $in: remaining }, memberIds: userId });
+  return !!group;
+}
+
 async function handleMemberRemovalCascade(groupId, userId) {
   const groupOid = new ObjectId(groupId);
 
-  // Topics owned by the removed user: detach from this group
+  // Topics owned by the removed user IN THIS GROUP: detach from this group.
+  // Scoping to the group is essential — the user's topics in other groups
+  // (and the materials other people keep there) must not be touched.
+  const ownedTopics = await Topics.find({ ownerId: userId, groupIds: groupOid }).toArray();
+  const ownedTopicIds = ownedTopics.map(t => t._id);
   await Topics.updateMany(
-    { ownerId: userId, groupIds: groupOid },
+    { _id: { $in: ownedTopicIds } },
     { $pull: { groupIds: groupOid } }
   );
 
-  // In those (now-detached) topics, delete materials NOT owned by the removed user
-  const detachedTopics = await Topics.find({ ownerId: userId }).toArray();
-  for (const t of detachedTopics) {
+  // In those (now-detached) topics, delete materials belonging to members who
+  // lose access — unless they can still reach the topic via another group.
+  for (const t of ownedTopics) {
     const foreignMats = await StudyMaterials.find({
       topicId: t._id,
       ownerId: { $ne: userId }
     }).toArray();
     for (const m of foreignMats) {
-      await deleteMaterialCascade(m._id);
+      const stillAllowed = await userStillHasTopicAccess(t, m.ownerId, groupOid);
+      if (!stillAllowed) await deleteMaterialCascade(m._id);
     }
   }
 
-  // Topics NOT owned by the removed user that remain in this group: delete the removed user's materials
+  // Topics NOT owned by the removed user that remain in this group: delete the
+  // removed user's materials, unless another group still grants them access.
   const groupTopics = await Topics.find({
     groupIds: groupOid,
     ownerId: { $ne: userId }
   }).toArray();
   for (const t of groupTopics) {
+    const stillAllowed = await userStillHasTopicAccess(t, userId, groupOid);
+    if (stillAllowed) continue;
     const userMats = await StudyMaterials.find({
       topicId: t._id,
       ownerId: userId
@@ -972,12 +1017,11 @@ app.post("/api/topics", async (req, res) => {
   const { title, groupId, groupIds, description } = req.body;
   if (!title) return res.status(400).json({ error: "title required" });
 
-  let resolvedGroupIds = [];
-  if (groupIds && Array.isArray(groupIds)) {
-    resolvedGroupIds = groupIds.map(id => new ObjectId(id));
-  } else if (groupId) {
-    resolvedGroupIds = [new ObjectId(groupId)];
+  const rawGroupIds = (groupIds && Array.isArray(groupIds)) ? groupIds : (groupId ? [groupId] : []);
+  if (rawGroupIds.some(id => !ObjectId.isValid(id))) {
+    return res.status(400).json({ error: "Invalid group id" });
   }
+  const resolvedGroupIds = rawGroupIds.map(id => new ObjectId(id));
 
   const topic = {
     title,
@@ -1019,10 +1063,12 @@ app.put("/api/topics/:id", validateId, async (req, res) => {
   const updateDoc = { $set: { updatedAt: Date.now() } };
   if (title) updateDoc.$set.title = title;
   if (description !== undefined) updateDoc.$set.description = description;
-  if (groupIds && Array.isArray(groupIds)) {
-    updateDoc.$set.groupIds = groupIds.map(id => new ObjectId(id));
-  } else if (groupId) {
-    updateDoc.$set.groupIds = [new ObjectId(groupId)];
+  const rawGroupIds = (groupIds && Array.isArray(groupIds)) ? groupIds : (groupId ? [groupId] : null);
+  if (rawGroupIds) {
+    if (rawGroupIds.some(id => !ObjectId.isValid(id))) {
+      return res.status(400).json({ error: "Invalid group id" });
+    }
+    updateDoc.$set.groupIds = rawGroupIds.map(id => new ObjectId(id));
   }
   if (Object.keys(updateDoc.$set).length <= 1) {
     return res.status(400).json({ error: "No update fields provided" });
