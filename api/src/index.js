@@ -34,7 +34,7 @@ app.use((req, res, next) => {
   res.setHeader("x-request-id", id);
   next();
 });
-app.use(express.json());
+app.use(express.json({ limit: "100kb" }));
 
 const mongoUrl = process.env.MONGO_URL;
 const redisUrl = process.env.REDIS_URL;
@@ -55,8 +55,13 @@ redis.on("error", err => log("error", "redis_error", { err: err?.message || Stri
 redis.on("reconnecting", () => log("warn", "redis_reconnecting"));
 redis.on("ready", () => log("info", "redis_ready"));
 
-await mongo.connect();
-await redis.connect();
+try {
+  await mongo.connect();
+  await redis.connect();
+} catch (err) {
+  log("error", "startup_connect_failed", { err: err?.message || String(err) });
+  process.exit(1);
+}
 
 const checkJwt = auth({
   audience: process.env.AUTH0_AUDIENCE,
@@ -230,9 +235,17 @@ async function joinGroupAsMember(groupId, userId) {
   await audit(groupOid, userId, userId, "join");
 }
 
-// Health Check
-app.get("/health", (req, res) => {
-  res.json({ ok: true });
+// Health Check — probes both dependencies so a DB-dead task actually
+// reports unhealthy to the load balancer instead of a hollow 200
+app.get("/health", async (req, res) => {
+  try {
+    await db.command({ ping: 1 });
+    await redis.ping();
+    res.json({ ok: true });
+  } catch (err) {
+    log("error", "health_check_failed", { err: err?.message || String(err) });
+    res.status(503).json({ ok: false });
+  }
 });
 
 app.use("/api", checkJwt);
@@ -1201,8 +1214,40 @@ app.post("/api/materials/batch-delete", async (req, res) => {
   res.json({ ok: true, deleted, skipped });
 });
 
+// JSON 404 for unmatched routes (replaces Express's HTML error page)
+app.use((req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+
+// Global error handler — catches sync throws and Express 5 async rejections.
+// express-oauth2-jwt-bearer errors carry their own status (401/403).
+app.use((err, req, res, _next) => {
+  const status = err.status || err.statusCode || 500;
+  if (status >= 500) {
+    log("error", "unhandled_error", {
+      requestId: req.requestId,
+      err: err?.message || String(err),
+    });
+  }
+  if (res.headersSent) return;
+  res.status(status).json({ error: status >= 500 ? "Internal server error" : err.message });
+});
+
 const port = process.env.PORT || 4000;
 
-app.listen(port, "0.0.0.0", () => {
+const server = app.listen(port, "0.0.0.0", () => {
   log("info", "api_listening", { port });
 });
+
+function shutdown(signal) {
+  log("info", "shutdown_signal", { signal });
+  server.close(async () => {
+    try { await redis.quit(); } catch { /* already closed */ }
+    try { await mongo.close(); } catch { /* already closed */ }
+    process.exit(0);
+  });
+  // Don't hang forever on slow-draining connections
+  setTimeout(() => process.exit(1), 10_000).unref();
+}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

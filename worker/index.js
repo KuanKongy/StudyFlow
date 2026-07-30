@@ -40,8 +40,13 @@ redis.on("error", err => log("error", "redis_error", { err: err?.message || Stri
 redis.on("reconnecting", () => log("warn", "redis_reconnecting"));
 redis.on("ready", () => log("info", "redis_ready"));
 
-await mongo.connect();
-await redis.connect();
+try {
+  await mongo.connect();
+  await redis.connect();
+} catch (err) {
+  log("error", "startup_connect_failed", { err: err?.message || String(err) });
+  process.exit(1);
+}
 
 const db = mongo.db();
 const Jobs = db.collection("jobs");
@@ -122,7 +127,20 @@ const handlers = {
   GENERATE_SUMMARY: handleGenerateSummary,
 };
 
-while (true) {
+// Graceful shutdown: finish the in-flight job, then close connections.
+// If the worker is idle (blocked in BRPOP), destroy the connection so the
+// loop can exit now instead of after the 30 s pop timeout.
+let shuttingDown = false;
+let processingJob = false;
+function requestShutdown(signal) {
+  log("info", "shutdown_signal", { signal });
+  shuttingDown = true;
+  if (!processingJob) redis.destroy();
+}
+process.on("SIGTERM", () => requestShutdown("SIGTERM"));
+process.on("SIGINT", () => requestShutdown("SIGINT"));
+
+while (!shuttingDown) {
   log("info", "worker_waiting");
   let job;
   try {
@@ -130,46 +148,57 @@ while (true) {
     // keep-alive pings and turning a dropped socket into a crashed loop
     job = await redis.brPop("queue:jobs", 30);
   } catch (err) {
+    if (shuttingDown) break;
     log("error", "queue_pop_error", { err: err?.message || String(err) });
     await new Promise(r => setTimeout(r, 1000));
     continue;
   }
   if (!job) continue;
-
-  const { jobId } = JSON.parse(job.element);
-  log("info", "job_received", { jobId });
-
-  const jobObjectId = new ObjectId(jobId);
-  const jobDoc = await Jobs.findOne({ _id: jobObjectId });
-  if (!jobDoc) continue;
-
-  // data-005: skip jobs for deleted users
-  const userExists = await Users.findOne({ authId: jobDoc.ownerId });
-  if (!userExists) {
-    log("info", "job_skipped_user_deleted", { jobId, ownerId: jobDoc.ownerId });
-    await failJob(jobDoc, "User deleted");
-    continue;
-  }
-
-  const handler = handlers[jobDoc.type];
-  if (!handler) {
-    log("error", "unknown_job_type", { jobId, type: jobDoc.type });
-    await failJob(jobDoc, `Unknown job type: ${jobDoc.type}`);
-    continue;
-  }
+  processingJob = true;
 
   try {
-    await handler(jobDoc);
-    log("info", "job_completed", { jobId, requestId: jobDoc.requestId });
-  } catch (err) {
-    log("error", "job_handler_error", {
-      jobId,
-      err: err?.message || String(err),
-      requestId: jobDoc.requestId,
-    });
-    await failJob(jobDoc, err.message);
+    const { jobId } = JSON.parse(job.element);
+    log("info", "job_received", { jobId });
+
+    const jobObjectId = new ObjectId(jobId);
+    const jobDoc = await Jobs.findOne({ _id: jobObjectId });
+    if (!jobDoc) continue;
+
+    // data-005: skip jobs for deleted users
+    const userExists = await Users.findOne({ authId: jobDoc.ownerId });
+    if (!userExists) {
+      log("info", "job_skipped_user_deleted", { jobId, ownerId: jobDoc.ownerId });
+      await failJob(jobDoc, "User deleted");
+      continue;
+    }
+
+    const handler = handlers[jobDoc.type];
+    if (!handler) {
+      log("error", "unknown_job_type", { jobId, type: jobDoc.type });
+      await failJob(jobDoc, `Unknown job type: ${jobDoc.type}`);
+      continue;
+    }
+
+    try {
+      await handler(jobDoc);
+      log("info", "job_completed", { jobId, requestId: jobDoc.requestId });
+    } catch (err) {
+      log("error", "job_handler_error", {
+        jobId,
+        err: err?.message || String(err),
+        requestId: jobDoc.requestId,
+      });
+      await failJob(jobDoc, err.message);
+    }
+  } finally {
+    processingJob = false;
   }
 }
+
+log("info", "worker_stopped");
+try { redis.destroy(); } catch { /* already closed */ }
+await mongo.close();
+process.exit(0);
 
 async function handleGenerateFlashcards(job) {
   await Jobs.updateOne(
