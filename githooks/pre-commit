@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+staged_env_files="$(git diff --cached --name-only --diff-filter=ACMR | grep -E '(^|/)\.env(\..*)?$' || true)"
+if [ -n "$staged_env_files" ]; then
+  echo "pre-commit: refusing to commit .env files"
+  echo "$staged_env_files"
+  exit 1
+fi
+
+if [ "${SKIP_HOOK_CHECKS:-}" != "1" ]; then
+  echo "pre-commit: root — npm run lint && tests"
+  npm run lint
+  if [ "${PRE_COMMIT_SKIP_ROOT_INTEGRATION:-}" = "1" ]; then
+    echo "pre-commit: root tests (redbar + smoke only; integration skipped — see githooks/README.md)"
+    npm run test:redbar
+    npm run test:smoke
+  else
+    npm test
+  fi
+
+  echo "pre-commit: api — npm install && npm run lint && npm test"
+  (cd api && npm install && npm run lint && npm test)
+
+  echo "pre-commit: worker — npm install && npm run lint && npm test"
+  (cd worker && npm install && npm run lint && npm test)
+
+  echo "pre-commit: frontend — npm ci && npm run lint && npm test"
+  (cd frontend && npm ci && npm run lint && npm test)
+fi
+
+repo_url=""
+branch=""
+sha=""
+method=""
+
+json_escape() {
+  # Escapes backslash and quote for JSON string contexts.
+  printf '%s' "$1" | sed -e 's/\/\\/g' -e 's/"/\"/g'
+}
+
+updated_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+if git -C capstone/team rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  method="submodule"
+  sha="$(git -C capstone/team rev-parse HEAD 2>/dev/null || true)"
+  branch="$(git -C capstone/team symbolic-ref --short HEAD 2>/dev/null || true)"
+  repo_url="$(git -C capstone/team remote get-url origin 2>/dev/null || true)"
+elif [ -f capstone/team_repo.txt ]; then
+  repo_url="$(grep -v '^[[:space:]]*#' capstone/team_repo.txt | head -n 1 | tr -d '
+' || true)"
+  if [ -n "$repo_url" ]; then
+    method="remote"
+    # Best-effort: this requires network access; do not fail the commit if it fails.
+    sha="$(git ls-remote "$repo_url" HEAD 2>/dev/null | awk '{print $1}' | head -n 1 || true)"
+    branch="HEAD"
+  fi
+fi
+
+if [ -z "$method" ]; then
+  # No team repo configured yet; avoid touching the pointer file.
+  exit 0
+fi
+
+mkdir -p capstone
+
+json_value() {
+  local v="$1"
+  if [ -n "$v" ]; then
+    printf '"%s"' "$(json_escape "$v")"
+  else
+    printf 'null'
+  fi
+}
+
+cat > capstone/team-pointer.json <<EOF
+{
+  "repo": $(json_value "$repo_url"),
+  "branch": $(json_value "$branch"),
+  "sha": $(json_value "$sha"),
+  "updated_at": "$(json_escape "$updated_at")",
+  "method": $(json_value "$method")
+}
+EOF
+
+git add capstone/team-pointer.json >/dev/null 2>&1 || true
+
+exit 0

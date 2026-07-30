@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# Local test-run receipts (written by scripts/run-tests-with-log.mjs)
+evidence/receipts/

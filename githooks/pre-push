@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+die() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+has_signature() {
+  local sha="$1"
+  git cat-file -p "$sha" | grep -q '^gpgsig '
+}
+
+list_commits() {
+  local local_sha="$1"
+  local remote_sha="$2"
+  if [[ "$remote_sha" == "0000000000000000000000000000000000000000" ]]; then
+    git rev-list "$local_sha"
+  else
+    git rev-list "${remote_sha}..${local_sha}"
+  fi
+}
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -z "$local_sha" ] && continue
+  while read -r c; do
+    [ -z "$c" ] && continue
+    if ! has_signature "$c"; then
+      die "push rejected: commit is not signed: $c. Use 'git commit -S' (GPG or SSH signing are both acceptable)."
+    fi
+  done < <(list_commits "$local_sha" "$remote_sha")
+done
+
+exit 0

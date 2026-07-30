@@ -1,0 +1,19 @@
+{
+  "name": "studyflow",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint .",
+    "test": "node scripts/run-tests-with-log.mjs",
+    "test:redbar": "node --test --test-concurrency=1 'tests/redbar/*.test.mjs'",
+    "test:smoke": "node --test 'tests/smoke/*.test.mjs'",
+    "test:integration": "node --test tests/integration/*.test.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.32.0",
+    "eslint": "^9.32.0",
+    "globals": "^15.15.0",
+    "mongodb": "^7.1.1",
+    "redis": "^5.11.0"
+  }
+}

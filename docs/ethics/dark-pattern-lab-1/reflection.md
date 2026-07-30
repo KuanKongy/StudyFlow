@@ -1,0 +1,3 @@
+Designing the dark version was easy because it follows business incentives (just max clicks == add more click opportunities, reasons) and abuses people's habits: default bias, fear of loss, and visual attention.  
+The most effective technique was friction asymmetry—making “accept” one click and “decline” a long, painful journey—because it quietly decides for the user without ever forcing them.  
+The hardest thing to undo in the ethical version was removing urgency and persuasive framing, because without them the interface feels almost “too weak” from a growth perspective.  
