@@ -174,13 +174,11 @@ export default function Dashboard() {
         <div className="space-y-6">
           {/* Active Jobs */}
           <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <span>AI Jobs</span>
-                <Link to="/app/jobs">
-                  <Button variant="ghost" size="sm">View all</Button>
-                </Link>
-              </CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-lg">AI Jobs</CardTitle>
+              <Link to="/app/jobs">
+                <Button variant="ghost" size="sm">View all</Button>
+              </Link>
             </CardHeader>
             <CardContent>
               {activeJobs.length === 0 ? (

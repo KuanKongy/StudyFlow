@@ -78,7 +78,7 @@ export default function FlashcardsView() {
 
   if (matLoading || cardsLoading) {
     return (
-      <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-4xl mx-auto animate-fade-in">
+      <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
         <div className="flex items-center gap-4 mb-6">
           <Skeleton className="h-8 w-8 rounded-md" />
           <div className="space-y-2">
@@ -207,7 +207,7 @@ export default function FlashcardsView() {
   };
 
   return (
-    <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-4xl mx-auto animate-fade-in">
+    <div className="px-4 py-5 sm:p-6 lg:p-8 max-w-5xl mx-auto animate-fade-in">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div className="flex min-w-0 items-center gap-3 sm:gap-4">
