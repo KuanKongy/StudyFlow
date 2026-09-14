@@ -33,6 +33,8 @@ import AIJobs from "@/pages/AIJobs";
 import Onboarding from "@/pages/Onboarding";
 import TermsOfService from "@/pages/TermsOfService";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
+import FAQ from "@/pages/FAQ";
+import Contact from "@/pages/Contact";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -99,6 +101,8 @@ const App = () => (
                   <Route path="/login" element={<Login />} />
                   <Route path="/terms" element={<TermsOfService />} />
                   <Route path="/privacy" element={<PrivacyPolicy />} />
+                  <Route path="/faq" element={<FAQ />} />
+                  <Route path="/contact" element={<Contact />} />
                   <Route path="/" element={<RootRedirect />} />
                   <Route path="/app/onboarding" element={<Onboarding />} />
                   <Route path="/app" element={<OnboardingGuard><AppLayout /></OnboardingGuard>}>

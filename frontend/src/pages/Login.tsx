@@ -90,6 +90,16 @@ export default function Login() {
             <Link to="/privacy" className="underline hover:text-foreground">Privacy Policy</Link>.
           </p>
         </div>
+
+        <nav
+          aria-label="Footer"
+          className="absolute bottom-4 inset-x-0 flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-xs text-muted-foreground"
+        >
+          <Link to="/terms" className="hover:text-foreground">Terms of Service</Link>
+          <Link to="/privacy" className="hover:text-foreground">Privacy Policy</Link>
+          <Link to="/faq" className="hover:text-foreground">FAQ</Link>
+          <Link to="/contact" className="hover:text-foreground">Contact</Link>
+        </nav>
       </div>
     </div>
   );

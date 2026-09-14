@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { LogOut, User, Cpu, Menu } from 'lucide-react';
+import { LogOut, User, Cpu, HelpCircle, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -87,6 +87,12 @@ export function TopBar({ onMenuClick }: TopBarProps) {
               <DropdownMenuItem>
                 <Cpu className="w-4 h-4 mr-2" />
                 AI Jobs
+              </DropdownMenuItem>
+            </Link>
+            <Link to="/faq">
+              <DropdownMenuItem>
+                <HelpCircle className="w-4 h-4 mr-2" />
+                FAQ
               </DropdownMenuItem>
             </Link>
             <DropdownMenuSeparator />

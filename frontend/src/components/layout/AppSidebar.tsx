@@ -9,6 +9,7 @@ import {
   FileCheck,
   Layers,
   ChevronDown,
+  HelpCircle,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -269,6 +270,20 @@ export function AppSidebar({ className, onNavigate, onClose }: AppSidebarProps) 
           </CollapsibleContent>
         </Collapsible>
       </nav>
+
+      {/* Help */}
+      <div className="shrink-0 p-3 border-t border-sidebar-border">
+        <Link to="/faq">
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-2 text-sidebar-muted hover:text-sidebar-foreground"
+            size="sm"
+          >
+            <HelpCircle className="w-4 h-4" />
+            FAQ
+          </Button>
+        </Link>
+      </div>
     </aside>
   );
 }
