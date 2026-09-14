@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link, Navigate, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, Sparkles, Layers, CheckCircle, ChevronDown, Code, Eye, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SegmentedControl } from '@/components/SegmentedControl';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -276,24 +277,14 @@ export default function NoteView() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1">
-            <Button
-              variant={effectiveMode === 'rendered' ? 'secondary' : 'ghost'}
-              size="sm"
-              onClick={() => setViewMode('rendered')}
-            >
-              <Eye className="w-4 h-4 mr-1" />
-              Rendered
-            </Button>
-            <Button
-              variant={effectiveMode === 'raw' ? 'secondary' : 'ghost'}
-              size="sm"
-              onClick={() => setViewMode('raw')}
-            >
-              <Code className="w-4 h-4 mr-1" />
-              Raw
-            </Button>
-          </div>
+          <SegmentedControl
+            value={effectiveMode}
+            onValueChange={setViewMode}
+            options={[
+              { value: 'rendered', label: 'Rendered', icon: Eye },
+              { value: 'raw', label: 'Raw', icon: Code },
+            ]}
+          />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

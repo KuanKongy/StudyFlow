@@ -83,21 +83,15 @@ export default function Login() {
             </div>
           )}
           <Button onClick={login} variant="hero" size="xl" className="w-full">Get started</Button>
-          <p className="text-center text-xs text-muted-foreground">
-            By continuing, you agree to our{' '}
-            <Link to="/terms" className="underline hover:text-foreground">Terms of Service</Link>
-            {' '}and{' '}
-            <Link to="/privacy" className="underline hover:text-foreground">Privacy Policy</Link>.
-          </p>
         </div>
 
         <nav
           aria-label="Footer"
           className="absolute bottom-4 inset-x-0 flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-xs text-muted-foreground"
         >
+          <Link to="/faq" className="hover:text-foreground">FAQ</Link>
           <Link to="/terms" className="hover:text-foreground">Terms of Service</Link>
           <Link to="/privacy" className="hover:text-foreground">Privacy Policy</Link>
-          <Link to="/faq" className="hover:text-foreground">FAQ</Link>
           <Link to="/contact" className="hover:text-foreground">Contact</Link>
         </nav>
       </div>

@@ -1,70 +1,58 @@
 # Terms of Service
 
-**Last updated:** 09/13/2026
+**Last updated:** 09/14/2026
 
 ---
 
 ## 1. Introduction
 
-Welcome to **StudyFlow** (**"Company"**, **"we"**, **"our"**, **"us"**), a collaborative study platform operated by Nam Le. These Terms of Service (**"Terms"**) govern your use of the StudyFlow web application (**"Service"**).
+Welcome to **StudyFlow** (**"Company"**, **"we"**, **"our"**, **"us"**)! As you have just clicked our Terms of Service, please pause, grab a cup of coffee and carefully read the following pages. It will take you approximately 10 minutes.
+
+These Terms of Service (**"Terms"**) govern your use of the StudyFlow web application (**"Service"**), a collaborative study platform operated by Nam Le.
 
 Our Privacy Policy also governs your use of our Service and explains how we collect, safeguard and disclose information that results from your use of StudyFlow. Please read it in [privacy-policy.md](./privacy-policy.md).
 
 Your agreement with us includes these Terms and our Privacy Policy (**"Agreements"**). You acknowledge that you have read and understood the Agreements, and agree to be bound by them. If you do not agree with (or cannot comply with) the Agreements, you may not use the Service — but please let us know by opening an issue on [the StudyFlow repository](https://github.com/KuanKongy/StudyFlow) so we can try to find a solution. These Terms apply to all visitors, users and others who wish to access or use the Service.
 
+Thank you for being responsible.
+
 ## 2. Accounts
 
-- Accounts are created through Auth0, a third-party authentication provider.
-- One account per person. You must provide accurate information during registration.
-- Usernames must be unique and may only contain letters, numbers, periods, and underscores, with a maximum of 30 characters.
-- Display names may contain spaces and emojis, with a maximum of 30 characters.
-- You are responsible for maintaining the security of your account credentials.
+When you create an account with us, you do so through Auth0, a third-party authentication provider. We keep the rules simple: one account per person, and accurate information during registration. Your username must be unique and may only contain letters, numbers, periods, and underscores (up to 30 characters). Your display name is more relaxed — spaces and emojis are welcome, up to the same 30 characters. You are responsible for maintaining the security of your account credentials, so please keep them safe.
 
 ## 3. Content
 
-- **Ownership:** Topics are owned by their creator. Notes, summaries, and flashcard sets are owned by the user who created them.
-- **Collaboration:** Group members can view and edit shared materials collaboratively. No user can delete materials they do not own.
-- **Topic Deletion:** Deleting a topic permanently removes all materials within it, including materials created by other users. Exercise caution.
-- **Group Deletion:** If a group is deleted, topics shared with that group are detached and revert to private status — they are not destroyed. Your work is preserved.
-- You are responsible for the content you create and share on the Service.
+StudyFlow revolves around the material you create: topics, notes, summaries, and flashcard sets (**"Content"**). What you make is yours — topics belong to their creator, and notes, summaries, and flashcard sets belong to the user who created them. Group members can view and edit shared materials collaboratively, but no one can delete materials they do not own. You are responsible for the Content you create and share on the Service, including its legality and appropriateness.
+
+Two deletion rules are worth knowing before you press any red buttons. Deleting a topic permanently removes all materials within it, including materials created by other users — so exercise caution. Deleting a group is gentler: topics shared with that group are simply detached and revert to private status. Your work is preserved.
 
 ## 4. AI Processing Disclosure
 
-StudyFlow uses OpenAI to generate summaries and flashcards from your notes. By using AI features, you acknowledge:
+StudyFlow uses OpenAI to generate summaries and flashcards from your notes, and we want to be completely upfront about what that means. When you use an AI feature, your note content is sent to OpenAI's servers in the United States, which means your data may be processed outside of Canada. OpenAI is subject to the US CLOUD Act, so US authorities may compel disclosure of data processed by OpenAI, and OpenAI may retain API call logs according to its own data retention policy.
 
-- **Data Transit:** Your note content is sent to OpenAI's servers in the United States. Data may be processed outside of Canada.
-- **CLOUD Act:** OpenAI is subject to the US CLOUD Act. US authorities may compel disclosure of data processed by OpenAI.
-- **Retention:** OpenAI may retain API call logs per their data retention policy.
-- **Irrecoverable Data:** Content already sent to OpenAI cannot be recalled or deleted after the fact, even if you delete your account.
-- **Disclosure Before Use:** You will be informed of these facts before your first use of AI features.
+Perhaps most importantly: content that has already been sent to OpenAI cannot be recalled or deleted after the fact, even if you later delete your account. None of this should come as a surprise when you use the Service — we show you these facts before your first use of AI features.
 
 ## 5. Usage Limits
 
-- 10 AI job requests per user per hour (summaries and flashcards combined).
-- Notes exceeding 50,000 characters are rejected for AI processing.
-
-These limits exist to prevent cost overruns and ensure fair usage across all users.
+To prevent cost overruns and keep the Service fair for everyone, each user may run 10 AI job requests per hour (summaries and flashcards combined), and notes exceeding 50,000 characters are rejected for AI processing.
 
 ## 6. Prohibited Uses
 
 You may use the Service only for lawful purposes. You agree not to:
 
 - Upload illegal, harmful, abusive, or threatening content.
-- Use automated tools to scrape, crawl, or abuse the platform or its AI features.
+- Use automated tools to scrape or abuse the platform or its AI features.
 - Impersonate other users or misrepresent your identity.
-- Attempt to access materials, groups, or accounts that do not belong to you.
-- Circumvent rate limits, access controls, or other security measures.
+- Attempt to access materials or accounts that do not belong to you.
+- Circumvent rate limits, access controls, or security measures.
 
 ## 7. Group Rules
 
-- Group owners control membership. Only the group owner can remove members or delete the group.
-- Group owners cannot be removed from their own group.
-- All membership changes (additions, removals, joins, leaves) are logged in an audit trail for accountability.
-- Members may leave a group at any time.
+Study groups are run by their owners: a group owner controls membership and can remove members or delete the group, and owners cannot be removed from their own group. Every membership change is logged in an audit trail, and any member may leave a group at any time.
 
 ## 8. Account Deletion
 
-You may delete your account at any time from the Profile page. All StudyFlow-managed data is removed from our database (MongoDB), cache (Redis), job queue, and group memberships. Your Auth0 identity is retained so you can sign in again later without repeating onboarding. Data already processed by OpenAI before deletion is outside our control and cannot be recalled.
+You may delete your account at any time from the Profile page. All StudyFlow-managed data is removed from our database, cache, job queue, and group memberships. Your Auth0 identity is retained so you can sign in again later without repeating onboarding. Data already processed by OpenAI is outside our control.
 
 ## 9. Intellectual Property
 
@@ -88,7 +76,7 @@ Our Service may contain links to third-party web sites or services that are not 
 
 ## 14. Disclaimer Of Warranty
 
-The Service is provided "as is" and "as available", for educational purposes, without warranties of any kind. We make no warranties regarding continuous, uninterrupted, or error-free operation of the platform, the accuracy or quality of AI-generated content, or data permanence beyond the deletion guarantees stated in these Terms.
+THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND. The Service is offered for educational purposes, and we make no warranties regarding continuous, uninterrupted, or error-free operation of the platform, the accuracy or quality of AI-generated content, or data permanence beyond the deletion guarantees stated in these Terms.
 
 ## 15. Limitation Of Liability
 

@@ -84,7 +84,7 @@ export function AppSidebar({ className, onNavigate, onClose }: AppSidebarProps) 
   return (
     <aside
       className={cn(
-        "w-64 shrink-0 bg-sidebar text-sidebar-foreground flex-col min-h-dvh border-r border-sidebar-border",
+        "w-64 shrink-0 bg-sidebar text-sidebar-foreground flex-col h-dvh border-r border-sidebar-border",
         className,
       )}
       onClick={handleNavigation}

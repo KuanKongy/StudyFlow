@@ -3,6 +3,7 @@ import { useParams, Link, Navigate } from 'react-router-dom';
 import { ArrowLeft, Code, ExternalLink, Eye, FileCheck, RefreshCw } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
+import { SegmentedControl } from '@/components/SegmentedControl';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -181,24 +182,14 @@ export default function SummaryView() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1">
-            <Button
-              variant={mode === 'rendered' ? 'secondary' : 'ghost'}
-              size="sm"
-              onClick={() => setMode('rendered')}
-            >
-              <Eye className="w-4 h-4 mr-1" />
-              Rendered
-            </Button>
-            <Button
-              variant={mode === 'raw' ? 'secondary' : 'ghost'}
-              size="sm"
-              onClick={() => setMode('raw')}
-            >
-              <Code className="w-4 h-4 mr-1" />
-              Raw
-            </Button>
-          </div>
+          <SegmentedControl
+            value={mode}
+            onValueChange={setMode}
+            options={[
+              { value: 'rendered', label: 'Rendered', icon: Eye },
+              { value: 'raw', label: 'Raw', icon: Code },
+            ]}
+          />
           {isOwner && material.derivedFrom && (
             <Button variant="outline" size="sm" onClick={handleRegenerate} disabled={isRegenerating}>
               <RefreshCw className={cn('w-4 h-4 mr-1', isRegenerating && 'animate-spin')} />

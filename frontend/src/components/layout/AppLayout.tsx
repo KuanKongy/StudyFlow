@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Outlet, Navigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { AppSidebar } from './AppSidebar';
 import { TopBar } from './TopBar';
@@ -13,6 +13,13 @@ import {
 export function AppLayout() {
   const { isAuthenticated, isLoading } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
+  const { pathname } = useLocation();
+
+  // Scrolling happens inside <main>, not the document, so reset it on navigation.
+  useEffect(() => {
+    mainRef.current?.scrollTo(0, 0);
+  }, [pathname]);
 
   if (isLoading) {
     return (
@@ -30,7 +37,7 @@ export function AppLayout() {
   }
 
   return (
-    <div className="min-h-dvh flex bg-background">
+    <div className="h-dvh flex bg-background overflow-hidden">
       <AppSidebar className="hidden md:flex" />
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
         <SheetContent
@@ -50,7 +57,7 @@ export function AppLayout() {
       </Sheet>
       <div className="flex-1 flex flex-col min-w-0">
         <TopBar onMenuClick={() => setMobileNavOpen(true)} />
-        <main className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto">
+        <main ref={mainRef} className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto">
           <Outlet />
         </main>
       </div>

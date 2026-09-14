@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SegmentedControl } from '@/components/SegmentedControl';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
@@ -233,14 +234,14 @@ export default function FlashcardsView() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
-          <Button variant={mode === 'list' ? 'secondary' : 'ghost'} size="sm" onClick={() => setMode('list')}>
-            <List className="w-4 h-4 mr-1" />List
-          </Button>
-          <Button variant={mode === 'study' ? 'secondary' : 'ghost'} size="sm" onClick={() => setMode('study')}>
-            <Play className="w-4 h-4 mr-1" />Study
-          </Button>
-        </div>
+        <SegmentedControl
+          value={mode}
+          onValueChange={setMode}
+          options={[
+            { value: 'list', label: 'List', icon: List },
+            { value: 'study', label: 'Study', icon: Play },
+          ]}
+        />
       </div>
 
       {mode === 'list' ? (
