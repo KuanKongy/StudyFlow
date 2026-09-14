@@ -433,6 +433,9 @@ function enqueueAiJob(jobType) {
       createdAt: Date.now(),
       requestId: req.requestId,
     };
+    if (req.replaceMaterialId) {
+      job.replaceMaterialId = req.replaceMaterialId;
+    }
     const { insertedId } = await Jobs.insertOne(job);
     await redis.lPush("queue:jobs", JSON.stringify({ jobId: insertedId.toString() }));
     res.json({ jobId: insertedId });
@@ -442,6 +445,42 @@ function enqueueAiJob(jobType) {
 const aiJobMiddleware = [validateId, loadAiInputMaterial, aiCircuitBreaker, aiRateLimiter];
 app.post("/api/materials/:id/flashcards", ...aiJobMiddleware, enqueueAiJob("GENERATE_FLASHCARDS"));
 app.post("/api/materials/:id/summary", ...aiJobMiddleware, enqueueAiJob("GENERATE_SUMMARY"));
+
+// Regenerate an existing summary in place — :id is the summary material.
+// Owner-only write; the worker replaces the summary's content instead of inserting a new row.
+const loadSummaryRegenTarget = async (req, res, next) => {
+  const summary = await StudyMaterials.findOne({ _id: new ObjectId(req.params.id) });
+  if (!summary || summary.type !== "summary") {
+    return res.status(400).json({ error: "Invalid summary material" });
+  }
+  if (summary.ownerId !== req.auth.payload.sub) {
+    return res.status(403).json({ error: "Forbidden — only the owner can regenerate a summary" });
+  }
+  // derivedFrom may be an ObjectId or a legacy string id
+  if (!summary.derivedFrom || !ObjectId.isValid(summary.derivedFrom)) {
+    return res.status(400).json({ error: "Source note no longer exists" });
+  }
+  const source = await StudyMaterials.findOne({ _id: new ObjectId(summary.derivedFrom) });
+  if (!source || source.type !== "note") {
+    return res.status(400).json({ error: "Source note no longer exists" });
+  }
+  const allowed = await canAccessMaterial(source, req.auth.payload.sub);
+  if (!allowed) {
+    return res.status(403).json({ error: "Forbidden — you do not have access to the source note" });
+  }
+  req.aiInputMaterial = source;
+  req.replaceMaterialId = summary._id;
+  next();
+};
+
+app.post(
+  "/api/materials/:id/summary/regenerate",
+  validateId,
+  loadSummaryRegenTarget,
+  aiCircuitBreaker,
+  aiRateLimiter,
+  enqueueAiJob("GENERATE_SUMMARY")
+);
 
 // ===================== Jobs =====================
 

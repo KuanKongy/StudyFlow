@@ -359,16 +359,40 @@ async function handleGenerateSummary(job) {
     await failJob(job, "Input material no longer exists");
     return;
   }
-  const { insertedId: materialId } = await StudyMaterials.insertOne({
-    type: "summary",
-    title: `Summary: ${inputMaterial.title}`,
-    ownerId: job.ownerId,
-    topicId: inputMaterial.topicId ?? null,
-    derivedFrom: inputMaterial._id,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  });
-  await Notes.insertOne({ materialId, content: summaryText });
+  let materialId;
+  if (job.replaceMaterialId) {
+    // Regeneration: replace the existing summary's content instead of inserting a new row.
+    const target = await StudyMaterials.findOne({ _id: job.replaceMaterialId, type: "summary" });
+    if (!target) {
+      // Summary was deleted while the job sat in the queue — do not resurrect it
+      await failJob(job, "Summary was deleted before regeneration finished");
+      return;
+    }
+    materialId = target._id;
+    await StudyMaterials.updateOne(
+      { _id: target._id },
+      { $set: { title: `Summary: ${inputMaterial.title}`, updatedAt: Date.now() } }
+    );
+    await Notes.updateOne(
+      { materialId: target._id },
+      { $set: { content: summaryText } },
+      { upsert: true }
+    );
+    if (target.topicId && target.topicId.toString() !== inputMaterial.topicId?.toString()) {
+      await redis.del(`topic:${target.topicId.toString()}:materials`);
+    }
+  } else {
+    ({ insertedId: materialId } = await StudyMaterials.insertOne({
+      type: "summary",
+      title: `Summary: ${inputMaterial.title}`,
+      ownerId: job.ownerId,
+      topicId: inputMaterial.topicId ?? null,
+      derivedFrom: inputMaterial._id,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }));
+    await Notes.insertOne({ materialId, content: summaryText });
+  }
 
   if (inputMaterial?.topicId) {
     await redis.del(`topic:${inputMaterial.topicId.toString()}:materials`);
