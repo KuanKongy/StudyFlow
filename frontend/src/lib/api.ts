@@ -109,6 +109,7 @@ function mapJob(raw: any): Job {
     type: raw.type,
     inputMaterialId: raw.inputMaterialId?.toString?.() ?? raw.inputMaterialId,
     resultMaterialId: raw.resultMaterialId?.toString?.() ?? raw.resultMaterialId ?? undefined,
+    replaceMaterialId: raw.replaceMaterialId?.toString?.() ?? raw.replaceMaterialId ?? undefined,
     ownerId: raw.ownerId,
     status: raw.status,
     createdAt: ts(raw.createdAt),
@@ -413,4 +414,8 @@ export async function generateFlashcards(getToken: TokenGetter, materialId: stri
 
 export async function generateSummary(getToken: TokenGetter, materialId: string): Promise<{ jobId: string }> {
   return apiFetch(`/api/materials/${materialId}/summary`, getToken, { method: 'POST' });
+}
+
+export async function regenerateSummary(getToken: TokenGetter, summaryMaterialId: string): Promise<{ jobId: string }> {
+  return apiFetch(`/api/materials/${summaryMaterialId}/summary/regenerate`, getToken, { method: 'POST' });
 }

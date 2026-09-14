@@ -75,6 +75,8 @@ export interface Job {
   type: JobType;
   inputMaterialId: string;
   resultMaterialId?: string;
+  /** For regeneration jobs: the existing summary material being replaced. */
+  replaceMaterialId?: string;
   ownerId: string;
   status: JobStatus;
   createdAt: string;

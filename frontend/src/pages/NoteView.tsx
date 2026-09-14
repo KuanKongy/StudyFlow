@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, Navigate, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Sparkles, Layers, CheckCircle, ChevronDown, Eye, FileText } from 'lucide-react';
+import { ArrowLeft, Save, Sparkles, Layers, CheckCircle, ChevronDown, Code, Eye, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
@@ -37,6 +37,7 @@ import {
 } from '@/hooks/useApi';
 import { toast } from 'sonner';
 import { CharCounter } from '@/components/CharCounter';
+import { MarkdownContent } from '@/components/MarkdownContent';
 import { LIMITS } from '@/lib/validation';
 
 export default function NoteView() {
@@ -49,6 +50,7 @@ export default function NoteView() {
   const [showAiDisclosure, setShowAiDisclosure] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [pendingAiAction, setPendingAiAction] = useState<'summary' | 'flashcards' | null>(null);
+  const [viewMode, setViewMode] = useState<'raw' | 'rendered' | null>(null);
 
   const { data: material, isLoading: materialLoading, isError: materialError } = useMaterial(materialId);
   const { data: note, isLoading: noteLoading, isError: noteError } = useNote(materialId);
@@ -62,6 +64,8 @@ export default function NoteView() {
   const group = topic?.groupIds?.[0] ? groups.find((g) => g.id === topic.groupIds[0]) : null;
   const isOwner = !!material && material.ownerId === user?.id;
   const backTo = material?.topicId ? `/app/topics/${material.topicId}` : '/app/notes';
+  // Owners default to the raw editor; readers get the rendered view.
+  const effectiveMode = viewMode ?? (isOwner ? 'raw' : 'rendered');
 
   useEffect(() => {
     if (note?.content !== undefined) {
@@ -272,6 +276,25 @@ export default function NoteView() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1">
+            <Button
+              variant={effectiveMode === 'rendered' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('rendered')}
+            >
+              <Eye className="w-4 h-4 mr-1" />
+              Rendered
+            </Button>
+            <Button
+              variant={effectiveMode === 'raw' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('raw')}
+            >
+              <Code className="w-4 h-4 mr-1" />
+              Raw
+            </Button>
+          </div>
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" disabled={isGenerating}>
@@ -314,15 +337,21 @@ export default function NoteView() {
 
       <Card className="flex-1 flex flex-col overflow-hidden">
         <CardContent className="p-0 flex-1 overflow-hidden flex flex-col">
-          <Textarea
-            value={content}
-            onChange={(e) => handleContentChange(e.target.value)}
-            className="flex-1 min-h-[500px] border-0 rounded-lg font-mono text-sm resize-none focus-visible:ring-0 overflow-auto"
-            placeholder="Start writing..."
-            maxLength={LIMITS.NOTE_CONTENT}
-            readOnly={!isOwner}
-            aria-label="Note content"
-          />
+          {effectiveMode === 'raw' ? (
+            <Textarea
+              value={content}
+              onChange={(e) => handleContentChange(e.target.value)}
+              className="flex-1 min-h-[500px] border-0 rounded-lg font-mono text-sm resize-none focus-visible:ring-0 overflow-auto"
+              placeholder="Start writing..."
+              maxLength={LIMITS.NOTE_CONTENT}
+              readOnly={!isOwner}
+              aria-label="Note content"
+            />
+          ) : (
+            <div className="flex-1 min-h-[500px] overflow-auto p-4" aria-label="Rendered note content">
+              <MarkdownContent content={content} />
+            </div>
+          )}
           <div className="px-4 pb-2 flex items-center justify-between gap-2">
             <span className="text-xs text-muted-foreground">
               {!isOwner

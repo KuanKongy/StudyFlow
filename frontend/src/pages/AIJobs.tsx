@@ -122,6 +122,7 @@ export default function AIJobs() {
                       await retryMutation.mutateAsync({
                         type: job.type,
                         inputMaterialId: job.inputMaterialId!,
+                        replaceMaterialId: job.replaceMaterialId,
                       });
                       toast.success('Job queued — check Active Jobs');
                     } catch (err: any) {

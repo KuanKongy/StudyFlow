@@ -389,14 +389,33 @@ export function useGenerateSummary() {
   });
 }
 
+export function useRegenerateSummary() {
+  const getToken = useToken();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (summaryMaterialId: string) => api.regenerateSummary(getToken, summaryMaterialId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+  });
+}
+
 export function useRetryJob() {
   const getToken = useToken();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ type, inputMaterialId }: { type: import('@/types').JobType; inputMaterialId: string }) =>
+    mutationFn: ({
+      type,
+      inputMaterialId,
+      replaceMaterialId,
+    }: {
+      type: import('@/types').JobType;
+      inputMaterialId: string;
+      replaceMaterialId?: string;
+    }) =>
       type === 'GENERATE_FLASHCARDS'
         ? api.generateFlashcards(getToken, inputMaterialId)
-        : api.generateSummary(getToken, inputMaterialId),
+        : replaceMaterialId
+          ? api.regenerateSummary(getToken, replaceMaterialId)
+          : api.generateSummary(getToken, inputMaterialId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
   });
 }
