@@ -273,7 +273,7 @@ export function AppSidebar({ className, onNavigate, onClose }: AppSidebarProps) 
 
       {/* Help */}
       <div className="shrink-0 p-3 border-t border-sidebar-border">
-        <Link to="/faq">
+        <Link to="/app/faq">
           <Button
             variant="ghost"
             className="w-full justify-start gap-2 text-sidebar-muted hover:text-sidebar-foreground"

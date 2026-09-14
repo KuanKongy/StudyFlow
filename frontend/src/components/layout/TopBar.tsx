@@ -89,7 +89,7 @@ export function TopBar({ onMenuClick }: TopBarProps) {
                 AI Jobs
               </DropdownMenuItem>
             </Link>
-            <Link to="/faq">
+            <Link to="/app/faq">
               <DropdownMenuItem>
                 <HelpCircle className="w-4 h-4 mr-2" />
                 FAQ

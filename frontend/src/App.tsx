@@ -34,6 +34,7 @@ import Onboarding from "@/pages/Onboarding";
 import TermsOfService from "@/pages/TermsOfService";
 import PrivacyPolicy from "@/pages/PrivacyPolicy";
 import FAQ from "@/pages/FAQ";
+import AppFaq from "@/pages/AppFaq";
 import Contact from "@/pages/Contact";
 import NotFound from "@/pages/NotFound";
 
@@ -124,6 +125,7 @@ const App = () => (
                     <Route path="flashcards/new" element={<CreateFlashcardSet />} />
                     <Route path="profile" element={<Profile />} />
                     <Route path="jobs" element={<AIJobs />} />
+                    <Route path="faq" element={<AppFaq />} />
                   </Route>
                   <Route path="*" element={<NotFound />} />
                 </Routes>
