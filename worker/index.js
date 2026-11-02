@@ -85,7 +85,9 @@ async function failJob(job, errorMessage) {
 async function callOpenAI(messages, temperature, job) {
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-6-luna",
+      // temperature is only accepted when reasoning is off
+      reasoning_effort: "none",
       messages,
       temperature
     });
